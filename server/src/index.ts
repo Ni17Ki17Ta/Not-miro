@@ -1,4 +1,4 @@
-import express, { type NextFunction, type Request, type Response } from 'express';
+import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -8,6 +8,8 @@ import { Server as SocketServer } from 'socket.io';
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { prisma } from './prisma.js';
+import authRouter from './routes/auth.js';
+import { errorHandler, notFoundHandler } from './middleware/error.js';
 
 async function bootstrap() {
   const app = express();
@@ -23,18 +25,14 @@ async function bootstrap() {
   app.use(express.json({ limit: '5mb' }));
   app.use(cookieParser());
 
-  // --- Routes (безопасная загрузка, пока файлы пустые) ---
-  try {
-    const { default: authRouter } = await import('./routes/auth.js');
-    if (authRouter) app.use('/api/auth', authRouter);
-  } catch (err) {
-    logger.warn('auth routes not loaded (module empty or missing)');
-  }
+  // --- Routes ---
+  app.use('/api/auth', authRouter);
 
+  // Boards routes — безопасная загрузка, пока файл пустой
   try {
     const { default: boardsRouter } = await import('./routes/boards.js');
     if (boardsRouter) app.use('/api/boards', boardsRouter);
-  } catch (err) {
+  } catch {
     logger.warn('boards routes not loaded (module empty or missing)');
   }
 
@@ -42,7 +40,7 @@ async function bootstrap() {
   try {
     const { setupSocket } = await import('./socket/index.js');
     if (typeof setupSocket === 'function') setupSocket(io);
-  } catch (err) {
+  } catch {
     logger.warn('socket handlers not loaded (module empty or missing)');
   }
 
@@ -51,16 +49,9 @@ async function bootstrap() {
     res.json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() });
   });
 
-  // --- 404 ---
-  app.use((_req, res) => {
-    res.status(404).json({ error: 'Not found' });
-  });
-
-  // --- Error handler ---
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    logger.error({ err }, 'Unhandled error');
-    res.status(500).json({ error: err.message || 'Internal error' });
-  });
+  // --- Error handling (в конце, после всех роутов) ---
+  app.use(notFoundHandler);
+  app.use(errorHandler);
 
   // --- Start ---
   server.listen(config.PORT, () => {
