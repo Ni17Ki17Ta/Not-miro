@@ -10,7 +10,7 @@
     "dev": "concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
     "setup": "npm install && npm run db:generate -w server && npm run db:push -w server",
     "test": "npm run test -w server && npm run test -w client",
-    "build": "npm run db:generate -w server && npm run build -w client"
+    "build": "npm run db:generate -w server && npm run build -w server && npm run build -w client"
   },
   "devDependencies": {
     "concurrently": "^9.0.1"

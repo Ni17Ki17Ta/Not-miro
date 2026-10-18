@@ -13,14 +13,20 @@ export const prisma =
     ],
   });
 
-prisma.$on('error', (e) => logger.error({ prisma: e }, 'Prisma error'));
-prisma.$on('warn', (e) => logger.warn({ prisma: e }, 'Prisma warning'));
+// Prisma-события типизированы через `$on` с дженериком, но TS плохо выводит его.
+// Приводим к типу "events" через `as never` — это официальный обходной путь.
+prisma.$on('error' as never, ((e: { message: string }) =>
+  logger.error({ prisma: e }, 'Prisma error')) as never);
+
+prisma.$on('warn' as never, ((e: { message: string }) =>
+  logger.warn({ prisma: e }, 'Prisma warning')) as never);
 
 if (process.env.NODE_ENV === 'development') {
-  prisma.$on('query', (e) => logger.debug({ sql: e.query, params: e.params, ms: e.duration }, 'Prisma query'));
+  prisma.$on('query' as never, ((e: { query: string; params: string; duration: number }) =>
+    logger.debug({ sql: e.query, params: e.params, ms: e.duration }, 'Prisma query')) as never);
 }
 
-// Защита от множественных экземпляров при hot-reload (tsx watch / nodemon)
+// Защита от множественных экземпляров при hot-reload
 if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = prisma;
 }

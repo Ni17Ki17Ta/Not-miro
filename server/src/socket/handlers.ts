@@ -96,15 +96,18 @@ export function setupHandlers(io: Server): void {
           color: socket.cursorColor,
         });
 
-        // Отправляем новому участнику список уже присутствующих
+        /// Отправляем новому участнику список уже присутствующих
         const roomSockets = await io.in(data.boardId).fetchSockets();
         const participants = roomSockets
           .filter((s) => s.id !== socket.id)
-          .map((s) => ({
-            socketId: s.id,
-            userName: (s as AuthSocket).userName,
-            color: (s as AuthSocket).cursorColor,
-          }));
+          .map((s) => {
+            const remote = s as unknown as AuthSocket;
+            return {
+              socketId: s.id,
+              userName: remote.userName,
+              color: remote.cursorColor,
+            };
+          });
         socket.emit('participants', participants);
 
         logger.info(
