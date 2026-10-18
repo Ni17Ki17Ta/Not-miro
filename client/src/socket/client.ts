@@ -1,7 +1,7 @@
 import { io, type Socket } from 'socket.io-client';
 import { getAccessToken } from '../api/client';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_URL = import.meta.env.PROD ? undefined : (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
 let socket: Socket | null = null;
 

@@ -3,6 +3,8 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import http from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Server as SocketServer } from 'socket.io';
 
 import { config } from './config.js';
@@ -13,6 +15,9 @@ import boardsRouter from './routes/boards.js';
 import { setupSocket } from './socket/index.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 async function bootstrap() {
   const app = express();
   const server = http.createServer(app);
@@ -22,7 +27,9 @@ async function bootstrap() {
   });
 
   // --- Global middleware ---
-  app.use(helmet());
+  app.use(helmet({
+    contentSecurityPolicy: false, // отключаем CSP для работы Vite в dev
+  }));
   app.use(cors({ origin: config.CLIENT_URL, credentials: true }));
   app.use(express.json({ limit: '5mb' }));
   app.use(cookieParser());
@@ -39,7 +46,19 @@ async function bootstrap() {
     res.json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() });
   });
 
-  // --- Error handling (в конце, после всех роутов) ---
+  // --- Раздача статики клиента (production) ---
+  if (config.NODE_ENV === 'production') {
+    const clientDist = path.resolve(__dirname, '../../client/dist');
+    app.use(express.static(clientDist));
+
+    // SPA fallback: все не-API запросы отдают index.html
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api')) return next();
+      res.sendFile(path.join(clientDist, 'index.html'));
+    });
+  }
+
+  // --- Error handling ---
   app.use(notFoundHandler);
   app.use(errorHandler);
 
