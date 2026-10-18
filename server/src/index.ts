@@ -9,6 +9,8 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 import { prisma } from './prisma.js';
 import authRouter from './routes/auth.js';
+import boardsRouter from './routes/boards.js';
+import { setupSocket } from './socket/index.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 
 async function bootstrap() {
@@ -27,22 +29,10 @@ async function bootstrap() {
 
   // --- Routes ---
   app.use('/api/auth', authRouter);
-
-  // Boards routes — безопасная загрузка, пока файл пустой
-  try {
-    const { default: boardsRouter } = await import('./routes/boards.js');
-    if (boardsRouter) app.use('/api/boards', boardsRouter);
-  } catch {
-    logger.warn('boards routes not loaded (module empty or missing)');
-  }
+  app.use('/api/boards', boardsRouter);
 
   // --- Socket.IO ---
-  try {
-    const { setupSocket } = await import('./socket/index.js');
-    if (typeof setupSocket === 'function') setupSocket(io);
-  } catch {
-    logger.warn('socket handlers not loaded (module empty or missing)');
-  }
+  setupSocket(io);
 
   // --- Healthcheck ---
   app.get('/api/health', (_req, res) => {

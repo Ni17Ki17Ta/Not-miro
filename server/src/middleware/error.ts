@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 import { logger } from '../logger.js';
 import { AuthError } from '../services/auth.js';
+import { BoardError } from '../services/boards.js';
 
 export function errorHandler(
   err: unknown,
@@ -24,6 +25,10 @@ export function errorHandler(
 
   // Наши бизнес-ошибки
   if (err instanceof AuthError) {
+    res.status(err.status).json({ error: err.message, code: err.code });
+    return;
+  }
+  if (err instanceof BoardError) {
     res.status(err.status).json({ error: err.message, code: err.code });
     return;
   }
