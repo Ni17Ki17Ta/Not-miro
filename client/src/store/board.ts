@@ -195,6 +195,8 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
   },
 
   resetHistory: () => set({ history: [], future: [] }),
+
+  // ВАЖНО: теперь сбрасываем и viewport
   resetBoard: () => set({
     elements: new Map(), selectedId: null, cursors: new Map(),
     participants: [], history: [], future: [], isOwner: false,
