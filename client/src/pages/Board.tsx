@@ -34,11 +34,23 @@ export default function Board() {
   const undo = useBoardStore((s) => s.undo);
   const redo = useBoardStore((s) => s.redo);
   const clearElements = useBoardStore((s) => s.clearElements);
+  const resetBoard = useBoardStore((s) => s.resetBoard);
   const isOwner = useBoardStore((s) => s.isOwner);
-  const elements = useBoardStore((s) => s.elements);
+
+  // Очистка стора при уходе с доски (чтобы не мигали старые данные)
+  useEffect(() => {
+    return () => {
+      resetBoard();
+    };
+  }, [resetBoard]);
 
   // Загрузка доски
   useEffect(() => {
+    // При смене доски сбрасываем старое состояние
+    resetBoard();
+    setBoard(null);
+    setError('');
+
     const load = async () => {
       try {
         const b = token
@@ -50,6 +62,7 @@ export default function Board() {
       }
     };
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, token]);
 
   // ============ Undo/Redo с синхронизацией ============
@@ -57,7 +70,6 @@ export default function Board() {
   const handleUndo = () => {
     const entry = undo();
     if (!entry) return;
-    // Отправляем обратную операцию на сервер, чтобы откат был у всех
     if (entry.type === 'add') {
       sendOperation({ type: 'remove', elementId: entry.element.id, createdBy: user!.id });
     } else if (entry.type === 'remove') {
@@ -140,7 +152,7 @@ export default function Board() {
         canRedo={future.length > 0}
       />
 
-      {/* Участники (слева сверху под топбаром) */}
+      {/* Участники */}
       <div
         style={{
           position: 'absolute',

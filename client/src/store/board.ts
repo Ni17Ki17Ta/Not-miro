@@ -59,6 +59,9 @@ interface BoardStore {
   redo: () => HistoryEntry | null;
   pushHistory: (entry: HistoryEntry) => void;
   resetHistory: () => void;
+  
+  // Очистка при уходе с доски
+  resetBoard: () => void;
 }
 
 // ============ Стор ============
@@ -201,11 +204,6 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
       newElements.delete(entry.element.id);
     } else if (entry.type === 'remove') {
       newElements.set(entry.element.id, entry.element);
-    } else if (entry.type === 'update') {
-      // Возвращаем старое значение — но у нас только новое. Упрощённая модель:
-      // при update сохраняем previousSnapshot, если он был в entry
-      const current = newElements.get(entry.element.id);
-      if (current) newElements.set(entry.element.id, { ...current });
     }
 
     set({
@@ -241,4 +239,16 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
   },
 
   resetHistory: () => set({ history: [], future: [] }),
+
+  // ============ Очистка при уходе с доски ============
+  
+  resetBoard: () => set({
+    elements: new Map(),
+    selectedId: null,
+    cursors: new Map(),
+    participants: [],
+    history: [],
+    future: [],
+    isOwner: false,
+  }),
 }));
