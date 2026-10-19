@@ -11,10 +11,8 @@ interface WhiteboardProps {
   userName: string;
 }
 
-// Безопасная волна: не отбрасывает точки, работает на коротких линиях
 function getWavyPoints(points: number[], amplitude = 4, period = 20): number[] {
-  if (points.length < 4) return points; // слишком мало точек — возвращаем как есть
-
+  if (points.length < 4) return points;
   const wavy: number[] = [];
   for (let i = 0; i < points.length - 2; i += 2) {
     const x1 = points[i], y1 = points[i + 1];
@@ -22,7 +20,6 @@ function getWavyPoints(points: number[], amplitude = 4, period = 20): number[] {
     const dx = x2 - x1, dy = y2 - y1;
     const len = Math.sqrt(dx * dx + dy * dy);
 
-    // Всегда добавляем начальную точку сегмента
     wavy.push(x1, y1);
 
     if (len < 1) continue;
@@ -30,14 +27,12 @@ function getWavyPoints(points: number[], amplitude = 4, period = 20): number[] {
     const nx = -dy / len, ny = dx / len;
     const steps = Math.max(2, Math.floor(len / 4));
 
-    // Начинаем с 1 (начало уже добавлено), до steps - 1
     for (let s = 1; s < steps; s++) {
       const t = s / steps;
       const offset = Math.sin(t * Math.PI * 2 * (len / period)) * amplitude;
       wavy.push(x1 + dx * t + nx * offset, y1 + dy * t + ny * offset);
     }
   }
-  // Добавляем последнюю точку
   wavy.push(points[points.length - 2], points[points.length - 1]);
   return wavy;
 }
@@ -131,18 +126,21 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     } else if (trRef.current) trRef.current.nodes([]);
   }, [selectedId, elements, tool]);
 
-  const getPointerPosFromEvent = (evt: MouseEvent | Touch): { x: number; y: number } | null => {
+  // Правильная типизация: различаем MouseEvent и TouchEvent
+  const getPointerPosFromEvent = (evt: MouseEvent | TouchEvent | Touch): { x: number; y: number } | null => {
     const container = containerRef.current;
     if (!container) return null;
     const rect = container.getBoundingClientRect();
 
-    let clientX: number, clientY: number;
-    if ('touches' in evt && evt.touches.length > 0) {
-      clientX = evt.touches[0].clientX;
-      clientY = evt.touches[0].clientY;
-    } else if ('clientX' in evt) {
-      clientX = evt.clientX;
-      clientY = evt.clientY;
+    let clientX = 0;
+    let clientY = 0;
+
+    if ('touches' in evt && Array.isArray((evt as TouchEvent).touches) && (evt as TouchEvent).touches.length > 0) {
+      clientX = (evt as TouchEvent).touches[0].clientX;
+      clientY = (evt as TouchEvent).touches[0].clientY;
+    } else if ('clientX' in evt && typeof (evt as MouseEvent).clientX === 'number') {
+      clientX = (evt as MouseEvent).clientX;
+      clientY = (evt as MouseEvent).clientY;
     } else {
       return null;
     }
@@ -358,7 +356,6 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     const dash = ls === 'dashed' ? [10, 6] : ls === 'dotted' ? [2, 6] : undefined;
 
     if (el.type === 'pen' && el.points) {
-      // ВАЖНО: волну применяем ТОЛЬКО если style === 'wavy' и точек > 4
       let pts = el.points;
       if (ls === 'wavy' && pts.length > 4) {
         pts = getWavyPoints(pts);
