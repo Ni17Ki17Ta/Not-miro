@@ -49,7 +49,7 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
   const stageRef = useRef<Konva.Stage>(null);
   const trRef = useRef<Konva.Transformer>(null);
 
-  const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+  const [size, setSize] = useState({ width: 800, height: 600 });
   const [isDrawing, setIsDrawing] = useState(false);
   const [draftElement, setDraftElement] = useState<BoardElement | null>(null);
   const [isPanning, setIsPanning] = useState(false);
@@ -79,7 +79,6 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
 
   const elements = Array.from(elementsMap.values()).sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
 
-  // Обновление размера Stage по контейнеру
   useEffect(() => {
     const update = () => {
       if (containerRef.current) {
@@ -121,24 +120,36 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     } else if (trRef.current) trRef.current.nodes([]);
   }, [selectedId, elements, tool]);
 
-  // === ГЛАВНОЕ ИСПРАВЛЕНИЕ: координаты через getRelativePointerPosition ===
-  const getPointerPos = (): { x: number; y: number } | null => {
-    const stage = stageRef.current;
-    if (!stage) return null;
-    const pointer = stage.getPointerPosition();
-    if (!pointer) return null;
-    // getRelativePointerPosition возвращает координаты относительно трансформированной Group
-    // Но так как Group у нас с x/y/scale, нужно учесть viewport вручную:
+  // ============ ТОЧНЫЕ КООРДИНАТЫ ЧЕРЕЗ КОНТЕЙНЕР ============
+  const getPointerPos = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>): { x: number; y: number } | null => {
+    const container = containerRef.current;
+    if (!container) return null;
+    const rect = container.getBoundingClientRect();
+
+    let clientX: number, clientY: number;
+    if ('touches' in e.evt && e.evt.touches.length > 0) {
+      clientX = e.evt.touches[0].clientX;
+      clientY = e.evt.touches[0].clientY;
+    } else if ('clientX' in e.evt) {
+      clientX = e.evt.clientX;
+      clientY = e.evt.clientY;
+    } else {
+      return null;
+    }
+
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+
     return {
-      x: (pointer.x - viewport.x) / viewport.scale,
-      y: (pointer.y - viewport.y) / viewport.scale,
+      x: (localX - viewport.x) / viewport.scale,
+      y: (localY - viewport.y) / viewport.scale,
     };
   };
 
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (tool === 'hand' || e.evt.button === 1 || e.evt.getModifierState?.(' ')) { setIsPanning(true); return; }
     if (tool === 'select') { if (e.target === e.target.getStage()) setSelected(null); return; }
-    const pos = getPointerPos();
+    const pos = getPointerPos(e);
     if (!pos) return;
     if (tool === 'eraser') { setIsDrawing(true); return; }
     setIsDrawing(true);
@@ -158,13 +169,10 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
   };
 
   const handleMouseMove = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    const stage = stageRef.current;
-    if (stage) {
-      const pointer = stage.getPointerPosition();
-      if (pointer) sendCursor((pointer.x - viewport.x) / viewport.scale, (pointer.y - viewport.y) / viewport.scale);
-    }
+    const pos = getPointerPos(e);
+    if (pos) sendCursor(pos.x, pos.y);
 
-    if (isPanning && stage) {
+    if (isPanning) {
       setViewport({ ...viewport, x: viewport.x + e.evt.movementX, y: viewport.y + e.evt.movementY });
       return;
     }
@@ -172,10 +180,11 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     if (!isDrawing) return;
 
     if (tool === 'eraser') {
+      const stage = stageRef.current;
       if (stage) {
-        const pos = stage.getPointerPosition();
-        if (pos) {
-          const shape = stage.getIntersection(pos);
+        const pointer = stage.getPointerPosition();
+        if (pointer) {
+          const shape = stage.getIntersection(pointer);
           if (shape && shape.id()) {
             const idToRemove = shape.id();
             const el = elementsMap.get(idToRemove);
@@ -190,9 +199,7 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
       return;
     }
 
-    if (!draftElement) return;
-    const pos = getPointerPos();
-    if (!pos) return;
+    if (!draftElement || !pos) return;
 
     const updated = { ...draftElement };
     if (tool === 'pen') updated.points = [...(draftElement.points || []), pos.x, pos.y];
@@ -231,15 +238,24 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
 
   const handleWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
-    const stage = stageRef.current;
-    if (!stage) return;
-    const pointer = stage.getPointerPosition();
-    if (!pointer) return;
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const pointerX = e.evt.clientX - rect.left;
+    const pointerY = e.evt.clientY - rect.top;
+
     const oldScale = viewport.scale;
     const newScale = e.evt.deltaY < 0 ? oldScale * 1.1 : oldScale / 1.1;
     const clamped = Math.max(0.2, Math.min(4, newScale));
-    const mousePointTo = { x: (pointer.x - viewport.x) / oldScale, y: (pointer.y - viewport.y) / oldScale };
-    setViewport({ scale: clamped, x: pointer.x - mousePointTo.x * clamped, y: pointer.y - mousePointTo.y * clamped });
+    const mousePointTo = {
+      x: (pointerX - viewport.x) / oldScale,
+      y: (pointerY - viewport.y) / oldScale,
+    };
+    setViewport({
+      scale: clamped,
+      x: pointerX - mousePointTo.x * clamped,
+      y: pointerY - mousePointTo.y * clamped,
+    });
   };
 
   const finishTextInput = () => {
@@ -282,7 +298,6 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     sendOperation({ type: 'update', element: updated });
   };
 
-  // Подсветка: рисование → зелёный, выделение → яркий синий, ластик/наведение → голубой
   const buildCommonProps = (el: BoardElement, isDraft: boolean) => {
     const isSelected = el.id === selectedId;
     const isHovered = hoveredId === el.id;
@@ -354,7 +369,6 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     return null;
   };
 
-  // Сетка: бесконечная, рисуется на большой площади вокруг viewport
   const renderGrid = () => {
     if (background === 'plain') return null;
     const lines: JSX.Element[] = [];
@@ -390,7 +404,10 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
       ref={containerRef}
       style={{
         width: '100%', height: '100%',
-        position: 'relative', overflow: 'hidden',
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        overflow: 'hidden',
         backgroundColor: background === 'dark-grid' ? '#333' : '#fafafa',
       }}
     >
