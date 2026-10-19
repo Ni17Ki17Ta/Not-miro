@@ -19,14 +19,10 @@ function getWavyPoints(points: number[], amplitude = 4, period = 20): number[] {
     const x2 = points[i + 2], y2 = points[i + 3];
     const dx = x2 - x1, dy = y2 - y1;
     const len = Math.sqrt(dx * dx + dy * dy);
-
     wavy.push(x1, y1);
-
     if (len < 1) continue;
-
     const nx = -dy / len, ny = dx / len;
     const steps = Math.max(2, Math.floor(len / 4));
-
     for (let s = 1; s < steps; s++) {
       const t = s / steps;
       const offset = Math.sin(t * Math.PI * 2 * (len / period)) * amplitude;
@@ -126,7 +122,6 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     } else if (trRef.current) trRef.current.nodes([]);
   }, [selectedId, elements, tool]);
 
-  // Правильная типизация: различаем MouseEvent и TouchEvent
   const getPointerPosFromEvent = (evt: MouseEvent | TouchEvent | Touch): { x: number; y: number } | null => {
     const container = containerRef.current;
     if (!container) return null;
@@ -148,10 +143,22 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     const localX = clientX - rect.left;
     const localY = clientY - rect.top;
 
-    return {
+    const result = {
       x: (localX - viewport.x) / viewport.scale,
       y: (localY - viewport.y) / viewport.scale,
     };
+
+    // ★★★ DEBUG: копируй эти строки из консоли и пришли мне ★★★
+    console.log('DEBUG pointer:', {
+      clientX, clientY,
+      rectLeft: rect.left, rectTop: rect.top,
+      localX, localY,
+      viewportX: viewport.x, viewportY: viewport.y,
+      scale: viewport.scale,
+      result,
+    });
+
+    return result;
   };
 
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -357,21 +364,8 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
 
     if (el.type === 'pen' && el.points) {
       let pts = el.points;
-      if (ls === 'wavy' && pts.length > 4) {
-        pts = getWavyPoints(pts);
-      }
-      return (
-        <Line
-          {...props}
-          points={pts}
-          stroke={el.color}
-          strokeWidth={el.strokeWidth}
-          lineCap="round"
-          lineJoin="round"
-          dash={dash}
-          tension={ls === 'wavy' ? 0 : 0.3}
-        />
-      );
+      if (ls === 'wavy' && pts.length > 4) pts = getWavyPoints(pts);
+      return <Line {...props} points={pts} stroke={el.color} strokeWidth={el.strokeWidth} lineCap="round" lineJoin="round" dash={dash} tension={ls === 'wavy' ? 0 : 0.3} />;
     }
     if (el.type === 'rect') {
       return <Rect {...props} width={el.width} height={el.height} stroke={el.color} strokeWidth={el.strokeWidth} fill={el.fill || 'transparent'} dash={dash} />;
@@ -393,9 +387,7 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     }
     if (el.type === 'line' && el.points) {
       let pts = el.points;
-      if (ls === 'wavy' && pts.length > 4) {
-        pts = getWavyPoints(pts);
-      }
+      if (ls === 'wavy' && pts.length > 4) pts = getWavyPoints(pts);
       return <Line {...props} points={pts} stroke={el.color} strokeWidth={el.strokeWidth} lineCap="round" dash={dash} tension={ls === 'wavy' ? 0 : 0} />;
     }
     if (el.type === 'text' && el.text) {
