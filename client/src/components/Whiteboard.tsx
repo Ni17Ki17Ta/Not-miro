@@ -45,6 +45,67 @@ function KonvaImageElement({ el, commonProps }: { el: BoardElement; commonProps:
   return <KonvaImage {...commonProps} image={image} width={el.width} height={el.height} />;
 }
 
+// Треугольник
+function TriangleShape({ el, commonProps }: { el: BoardElement; commonProps: any }) {
+  const w = el.width || 0;
+  const h = el.height || 0;
+  return (
+    <Line
+      {...commonProps}
+      points={[w / 2, 0, w, h, 0, h]}
+      closed
+      stroke={el.color}
+      strokeWidth={el.strokeWidth}
+      fill={el.fill || 'transparent'}
+      dash={el.lineStyle === 'dashed' ? [10, 6] : el.lineStyle === 'dotted' ? [2, 6] : undefined}
+    />
+  );
+}
+
+// Ромб
+function DiamondShape({ el, commonProps }: { el: BoardElement; commonProps: any }) {
+  const w = el.width || 0;
+  const h = el.height || 0;
+  return (
+    <Line
+      {...commonProps}
+      points={[w / 2, 0, w, h / 2, w / 2, h, 0, h / 2]}
+      closed
+      stroke={el.color}
+      strokeWidth={el.strokeWidth}
+      fill={el.fill || 'transparent'}
+      dash={el.lineStyle === 'dashed' ? [10, 6] : el.lineStyle === 'dotted' ? [2, 6] : undefined}
+    />
+  );
+}
+
+// Звезда (5 лучей)
+function StarShape({ el, commonProps }: { el: BoardElement; commonProps: any }) {
+  const w = el.width || 0;
+  const h = el.height || 0;
+  const cx = w / 2;
+  const cy = h / 2;
+  const outerR = Math.min(w, h) / 2;
+  const innerR = outerR / 2.5;
+  const pts: number[] = [];
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 === 0 ? outerR : innerR;
+    const angle = (Math.PI / 5) * i - Math.PI / 2;
+    pts.push(cx + r * Math.cos(angle), cy + r * Math.sin(angle));
+  }
+  return (
+    <Line
+      {...commonProps}
+      points={pts}
+      closed
+      stroke={el.color}
+      strokeWidth={el.strokeWidth}
+      fill={el.fill || 'transparent'}
+      dash={el.lineStyle === 'dashed' ? [10, 6] : el.lineStyle === 'dotted' ? [2, 6] : undefined}
+    />
+  );
+}
+
 export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
@@ -56,6 +117,10 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
   const [isPanning, setIsPanning] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const lastPanPos = useRef<{ x: number; y: number } | null>(null);
+
+  // Групповое выделение
+  const [selectionBox, setSelectionBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const selectionStart = useRef<{ x: number; y: number } | null>(null);
 
   const [textInput, setTextInput] = useState<{ x: number; y: number; width: number; height: number; text: string } | null>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
@@ -69,7 +134,9 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
   const fontSize = useBoardStore((s) => s.fontSize);
   const fontFamily = useBoardStore((s) => s.fontFamily);
   const selectedId = useBoardStore((s) => s.selectedId);
+  const selectedIds = useBoardStore((s) => s.selectedIds);
   const setSelected = useBoardStore((s) => s.setSelected);
+  const setSelectedIds = useBoardStore((s) => s.setSelectedIds);
   const addElement = useBoardStore((s) => s.addElement);
   const updateElement = useBoardStore((s) => s.updateElement);
   const removeElement = useBoardStore((s) => s.removeElement);
@@ -79,7 +146,15 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
   const viewport = useBoardStore((s) => s.viewport);
   const setViewport = useBoardStore((s) => s.setViewport);
 
-  const elements = Array.from(elementsMap.values()).sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
+  // zIndex: 1 — сверху, 10 — снизу.
+  // При равных zIndex новее сверху (по updatedAt по убыванию).
+  // Konva рисует по порядку — значит, первыми идут те, кто "снизу".
+  const elements = Array.from(elementsMap.values()).sort((a, b) => {
+    const za = a.zIndex ?? 5;
+    const zb = b.zIndex ?? 5;
+    if (za !== zb) return zb - za; // 10 первым (снизу), 1 последним (сверху)
+    return a.updatedAt - b.updatedAt; // старые первыми (снизу), новые последними (сверху)
+  });
 
   useEffect(() => {
     const update = () => {
@@ -101,18 +176,22 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId && !textInput) {
-        const el = elementsMap.get(selectedId);
-        if (!el || el.createdBy !== userId) return;
-        removeElement(selectedId);
-        pushHistory({ type: 'remove', element: el });
-        sendOperation({ type: 'remove', elementId: selectedId, createdBy: userId });
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length > 0 && !textInput) {
+        const target = e.target as HTMLElement;
+        if (['INPUT', 'TEXTAREA'].includes(target.tagName)) return;
+        for (const sid of selectedIds) {
+          const el = elementsMap.get(sid);
+          if (!el || el.createdBy !== userId) continue;
+          removeElement(sid);
+          pushHistory({ type: 'remove', element: el });
+          sendOperation({ type: 'remove', elementId: sid, createdBy: userId });
+        }
         setSelected(null);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectedId, elementsMap, userId, removeElement, pushHistory, sendOperation, setSelected, textInput]);
+  }, [selectedIds, elementsMap, userId, removeElement, pushHistory, sendOperation, setSelected, textInput]);
 
   useEffect(() => {
     if (trRef.current && stageRef.current && selectedId && tool === 'select') {
@@ -122,31 +201,20 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     } else if (trRef.current) trRef.current.nodes([]);
   }, [selectedId, elements, tool]);
 
-  // Координата в "мировой" системе (учитывает viewport)
   const getPointerPosFromEvent = (evt: MouseEvent | TouchEvent): { x: number; y: number } | null => {
     const container = containerRef.current;
     if (!container) return null;
     const rect = container.getBoundingClientRect();
-
-    let clientX = 0;
-    let clientY = 0;
-
+    let clientX = 0, clientY = 0;
     if ('touches' in evt && evt.touches.length > 0) {
-      clientX = evt.touches[0].clientX;
-      clientY = evt.touches[0].clientY;
+      clientX = evt.touches[0].clientX; clientY = evt.touches[0].clientY;
     } else if ('changedTouches' in evt && evt.changedTouches.length > 0) {
-      clientX = evt.changedTouches[0].clientX;
-      clientY = evt.changedTouches[0].clientY;
+      clientX = evt.changedTouches[0].clientX; clientY = evt.changedTouches[0].clientY;
     } else if ('clientX' in evt) {
-      clientX = (evt as MouseEvent).clientX;
-      clientY = (evt as MouseEvent).clientY;
-    } else {
-      return null;
-    }
-
+      clientX = (evt as MouseEvent).clientX; clientY = (evt as MouseEvent).clientY;
+    } else { return null; }
     const localX = clientX - rect.left;
     const localY = clientY - rect.top;
-
     return {
       x: (localX - viewport.x) / viewport.scale,
       y: (localY - viewport.y) / viewport.scale,
@@ -159,7 +227,19 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
       lastPanPos.current = { x: e.evt.clientX, y: e.evt.clientY };
       return;
     }
-    if (tool === 'select') { if (e.target === e.target.getStage()) setSelected(null); return; }
+
+    if (tool === 'select') {
+      // Клик на пустом месте — начинаем групповое выделение
+      if (e.target === e.target.getStage()) {
+        setSelected(null);
+        const pos = getPointerPosFromEvent(e.evt as any);
+        if (pos) {
+          selectionStart.current = pos;
+          setSelectionBox({ x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y });
+        }
+      }
+      return;
+    }
 
     const pos = getPointerPosFromEvent(e.evt as any);
     if (!pos) return;
@@ -168,27 +248,23 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     setIsDrawing(true);
 
     const id = `${userId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-    // ★★★ ГЛАВНОЕ ИСПРАВЛЕНИЕ ★★★
-    // Для pen и line: x/y = 0, points = абсолютные мировые координаты.
-    // Иначе Konva смещает линию на (x,y) ВТОРОЙ раз.
-    const isPolyline = tool === 'pen' || tool === 'line';
+    const isPolyline = tool === 'pen' || tool === 'line' || tool === 'polyline';
 
     const base: BoardElement = {
-      id,
-      type: tool as ElementType,
+      id, type: tool as ElementType,
       x: isPolyline ? 0 : pos.x,
       y: isPolyline ? 0 : pos.y,
       color, fill: fillColor, strokeWidth, lineStyle, fontSize, fontFamily,
-      zIndex: 0, createdBy: userId, version: 1, updatedAt: Date.now(),
+      zIndex: 5,
+      createdBy: userId, version: 1, updatedAt: Date.now(),
     };
 
-    if (tool === 'pen') base.points = [pos.x, pos.y];
-    if (tool === 'line') base.points = [pos.x, pos.y];
-    if (tool === 'rect') { base.width = 0; base.height = 0; }
-    if (tool === 'ellipse') base.radius = 0;
-    if (tool === 'text') { base.width = 0; base.height = 0; }
-
+    if (tool === 'pen' || tool === 'line' || tool === 'polyline') {
+      base.points = [pos.x, pos.y];
+    }
+    if (['rect', 'ellipse', 'triangle', 'star', 'diamond', 'text'].includes(tool)) {
+      base.width = 0; base.height = 0;
+    }
     setDraftElement(base);
   };
 
@@ -203,6 +279,15 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
 
     const pos = getPointerPosFromEvent(e.evt as any);
     if (pos) sendCursor(pos.x, pos.y);
+
+    // Групповое выделение
+    if (tool === 'select' && selectionStart.current && pos) {
+      setSelectionBox({
+        x1: selectionStart.current.x, y1: selectionStart.current.y,
+        x2: pos.x, y2: pos.y,
+      });
+      return;
+    }
 
     if (!isDrawing) return;
 
@@ -229,15 +314,14 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     if (!draftElement || !pos) return;
 
     const updated = { ...draftElement };
-
     if (tool === 'pen') {
-      // точки — абсолютные
       updated.points = [...(draftElement.points || []), pos.x, pos.y];
     } else if (tool === 'line') {
-      // старт — первая точка из points, конец — текущая
       const pts = draftElement.points || [0, 0];
       updated.points = [pts[0], pts[1], pos.x, pos.y];
-    } else if (tool === 'rect' || tool === 'text') {
+    } else if (tool === 'polyline') {
+      updated.points = [...(draftElement.points || []), pos.x, pos.y];
+    } else if (tool === 'rect' || tool === 'text' || tool === 'triangle' || tool === 'star' || tool === 'diamond') {
       updated.width = pos.x - draftElement.x;
       updated.height = pos.y - draftElement.y;
     } else if (tool === 'ellipse') {
@@ -248,6 +332,34 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
   };
 
   const handleMouseUp = () => {
+    // Завершение группового выделения
+    if (selectionStart.current && selectionBox) {
+      const { x1, y1, x2, y2 } = selectionBox;
+      const minX = Math.min(x1, x2);
+      const maxX = Math.max(x1, x2);
+      const minY = Math.min(y1, y2);
+      const maxY = Math.max(y1, y2);
+      if (Math.abs(maxX - minX) > 5 || Math.abs(maxY - minY) > 5) {
+        const ids: string[] = [];
+        for (const el of elements) {
+          // Простая проверка: элемент в пределах рамки
+          const ex = el.x || 0;
+          const ey = el.y || 0;
+          const ew = Math.abs(el.width || 0) || (el.points ? 0 : 10);
+          const eh = Math.abs(el.height || 0) || (el.points ? 0 : 10);
+          if (ex >= minX && ex <= maxX && ey >= minY && ey <= maxY) {
+            ids.push(el.id);
+          } else if (ex + ew >= minX && ex <= maxX && ey + eh >= minY && ey <= maxY) {
+            ids.push(el.id);
+          }
+        }
+        setSelectedIds(ids);
+      }
+      selectionStart.current = null;
+      setSelectionBox(null);
+      return;
+    }
+
     if (isPanning) {
       setIsPanning(false);
       lastPanPos.current = null;
@@ -257,7 +369,7 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
 
     let shouldSave = true;
     if (draftElement.type === 'pen' && (draftElement.points?.length ?? 0) < 4) shouldSave = false;
-    if (draftElement.type === 'rect' || draftElement.type === 'ellipse') {
+    if (['rect', 'ellipse', 'triangle', 'star', 'diamond'].includes(draftElement.type)) {
       const w = Math.abs(draftElement.width || draftElement.radius || 0);
       const h = Math.abs(draftElement.height || draftElement.radius || 0);
       if (w < 5 && h < 5) shouldSave = false;
@@ -307,7 +419,7 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     const el: BoardElement = {
       id, type: 'text', x: textInput.x, y: textInput.y,
       width: textInput.width, height: textInput.height, text: textInput.text,
-      fontSize, fontFamily, color, strokeWidth: 0, zIndex: 0,
+      fontSize, fontFamily, color, strokeWidth: 0, zIndex: 5,
       createdBy: userId, version: 1, updatedAt: Date.now(),
     };
     addElement(el);
@@ -316,17 +428,26 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     setTextInput(null);
   };
 
-  const handleElementClick = (el: BoardElement) => { if (tool === 'select') setSelected(el.id); };
+  const handleElementClick = (e: Konva.KonvaEventObject<MouseEvent>, el: BoardElement) => {
+    if (tool !== 'select') return;
+    e.cancelBubble = true;
+    if (e.evt.shiftKey) {
+      const next = selectedIds.includes(el.id)
+        ? selectedIds.filter((id) => id !== el.id)
+        : [...selectedIds, el.id];
+      setSelectedIds(next);
+    } else {
+      setSelected(el.id);
+    }
+  };
 
   const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>, el: BoardElement) => {
     const node = e.target;
-    // Для pen/line x/y = 0, а points сдвигаются на дельту драга
-    if (el.type === 'pen' || el.type === 'line') {
+    if (el.type === 'pen' || el.type === 'line' || el.type === 'polyline') {
       const dx = node.x();
       const dy = node.y();
       const newPoints = (el.points || []).map((p, i) => p + (i % 2 === 0 ? dx : dy));
       const updated = { ...el, x: 0, y: 0, points: newPoints };
-      // Сбрасываем позицию узла обратно в 0
       node.x(0); node.y(0);
       updateElement(updated);
       pushHistory({ type: 'update', element: updated });
@@ -354,7 +475,7 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
   };
 
   const buildCommonProps = (el: BoardElement, isDraft: boolean) => {
-    const isSelected = el.id === selectedId;
+    const isSelected = selectedIds.includes(el.id);
     const isHovered = hoveredId === el.id;
     const isEraserHover = tool === 'eraser' && isHovered;
     const isSelectHover = tool === 'select' && isHovered;
@@ -370,8 +491,8 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     return {
       key: el.id, id: el.id, x: el.x, y: el.y,
       draggable: canInteract,
-      onClick: () => handleElementClick(el),
-      onTap: () => handleElementClick(el),
+      onClick: (e: Konva.KonvaEventObject<MouseEvent>) => handleElementClick(e, el),
+      onTap: (e: Konva.KonvaEventObject<MouseEvent>) => handleElementClick(e, el),
       onMouseEnter: () => setHoveredId(el.id),
       onMouseLeave: () => setHoveredId(null),
       onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => handleDragEnd(e, el),
@@ -392,6 +513,9 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
       if (ls === 'wavy' && pts.length > 4) pts = getWavyPoints(pts);
       return <Line {...props} points={pts} stroke={el.color} strokeWidth={el.strokeWidth} lineCap="round" lineJoin="round" dash={dash} tension={ls === 'wavy' ? 0 : 0.3} />;
     }
+    if (el.type === 'polyline' && el.points) {
+      return <Line {...props} points={el.points} stroke={el.color} strokeWidth={el.strokeWidth} lineCap="round" lineJoin="round" dash={dash} />;
+    }
     if (el.type === 'rect') {
       return <Rect {...props} width={el.width} height={el.height} stroke={el.color} strokeWidth={el.strokeWidth} fill={el.fill || 'transparent'} dash={dash} />;
     }
@@ -409,6 +533,15 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
           }}
         />
       );
+    }
+    if (el.type === 'triangle') {
+      return <TriangleShape el={el} commonProps={props} />;
+    }
+    if (el.type === 'diamond') {
+      return <DiamondShape el={el} commonProps={props} />;
+    }
+    if (el.type === 'star') {
+      return <StarShape el={el} commonProps={props} />;
     }
     if (el.type === 'line' && el.points) {
       let pts = el.points;
@@ -493,6 +626,21 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
           <Group x={viewport.x} y={viewport.y} scaleX={viewport.scale} scaleY={viewport.scale}>
             {elements.map((el) => renderElement(el))}
             {draftElement && renderElement(draftElement, true)}
+
+            {/* Рамка выделения */}
+            {selectionBox && (
+              <Rect
+                x={Math.min(selectionBox.x1, selectionBox.x2)}
+                y={Math.min(selectionBox.y1, selectionBox.y2)}
+                width={Math.abs(selectionBox.x2 - selectionBox.x1)}
+                height={Math.abs(selectionBox.y2 - selectionBox.y1)}
+                stroke="#2563eb"
+                strokeWidth={1}
+                dash={[4, 4]}
+                fill="rgba(37, 99, 235, 0.1)"
+                listening={false}
+              />
+            )}
           </Group>
         </Layer>
 

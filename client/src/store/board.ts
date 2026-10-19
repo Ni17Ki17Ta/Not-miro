@@ -17,7 +17,8 @@ interface BoardStore {
   lineStyle: LineStyle;
   fontSize: number;
   fontFamily: string;
-  selectedId: string | null;
+  selectedIds: string[];      // теперь массив (групповое выделение)
+  selectedId: string | null;  // для совместимости (первый из selectedIds)
   background: BoardBackground;
   viewport: Viewport;
   setViewport: (v: Viewport | ((prev: Viewport) => Viewport)) => void;
@@ -37,7 +38,7 @@ interface BoardStore {
   updateElement: (element: BoardElement) => void;
   removeElement: (id: string) => void;
   clearElements: () => void;
-  bringToFront: (id: string) => void;
+  setElementZIndex: (id: string, zIndex: number) => void;
 
   setTool: (tool: Tool) => void;
   setColor: (color: string) => void;
@@ -47,6 +48,7 @@ interface BoardStore {
   setFontSize: (size: number) => void;
   setFontFamily: (font: string) => void;
   setSelected: (id: string | null) => void;
+  setSelectedIds: (ids: string[]) => void;
 
   setParticipants: (participants: Participant[]) => void;
   addParticipant: (p: Participant) => void;
@@ -72,6 +74,7 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
   lineStyle: 'solid',
   fontSize: 16,
   fontFamily: 'Arial',
+  selectedIds: [],
   selectedId: null,
   background: 'light-grid',
   viewport: { x: 0, y: 0, scale: 1 },
@@ -108,8 +111,7 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
 
   addElement: (element) => set((state) => {
     const elements = new Map(state.elements);
-    const maxZ = Math.max(0, ...Array.from(elements.values()).map(e => e.zIndex || 0));
-    elements.set(element.id, { ...element, zIndex: maxZ + 1 });
+    elements.set(element.id, element);
     return { elements };
   }),
 
@@ -124,28 +126,33 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
   removeElement: (id) => set((state) => {
     const elements = new Map(state.elements);
     elements.delete(id);
-    return { elements, selectedId: state.selectedId === id ? null : state.selectedId };
+    return {
+      elements,
+      selectedIds: state.selectedIds.filter((sid) => sid !== id),
+      selectedId: state.selectedId === id ? null : state.selectedId,
+    };
   }),
 
-  clearElements: () => set({ elements: new Map(), selectedId: null }),
+  clearElements: () => set({ elements: new Map(), selectedId: null, selectedIds: [] }),
 
-  bringToFront: (id) => set((state) => {
+  setElementZIndex: (id, zIndex) => set((state) => {
     const el = state.elements.get(id);
     if (!el) return state;
+    const clamped = Math.max(1, Math.min(10, zIndex));
     const elements = new Map(state.elements);
-    const maxZ = Math.max(0, ...Array.from(elements.values()).map(e => e.zIndex || 0));
-    elements.set(id, { ...el, zIndex: maxZ + 1 });
+    elements.set(id, { ...el, zIndex: clamped });
     return { elements };
   }),
 
-  setTool: (tool) => set({ tool, selectedId: null }),
+  setTool: (tool) => set({ tool, selectedId: null, selectedIds: [] }),
   setColor: (color) => set({ color }),
   setFillColor: (fillColor) => set({ fillColor }),
   setStrokeWidth: (strokeWidth) => set({ strokeWidth }),
   setLineStyle: (lineStyle) => set({ lineStyle }),
   setFontSize: (fontSize) => set({ fontSize }),
   setFontFamily: (fontFamily) => set({ fontFamily }),
-  setSelected: (selectedId) => set({ selectedId }),
+  setSelected: (id) => set({ selectedId: id, selectedIds: id ? [id] : [] }),
+  setSelectedIds: (ids) => set({ selectedIds: ids, selectedId: ids[0] || null }),
 
   setParticipants: (participants) => set({ participants }),
   addParticipant: (p) => set((state) => {
@@ -199,7 +206,7 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
   resetHistory: () => set({ history: [], future: [] }),
 
   resetBoard: () => set({
-    elements: new Map(), selectedId: null, cursors: new Map(),
+    elements: new Map(), selectedId: null, selectedIds: [], cursors: new Map(),
     participants: [], history: [], future: [], isOwner: false,
     viewport: { x: 0, y: 0, scale: 1 },
   }),

@@ -3,16 +3,20 @@ import { useBoardStore } from '../store/board';
 import { api } from '../api/client';
 import type { Tool, LineStyle } from '../types';
 
-const TOOLS: { id: Tool; label: string; icon: string; key: string }[] = [
-  { id: 'select', label: 'Выделить', icon: '↖', key: 'V' },
-  { id: 'hand', label: 'Рука (перемещение)', icon: '✋', key: 'H' },
-  { id: 'pen', label: 'Карандаш', icon: '✏️', key: 'P' },
-  { id: 'eraser', label: 'Ластик', icon: '🧽', key: 'E' },
-  { id: 'rect', label: 'Прямоугольник', icon: '▭', key: 'R' },
-  { id: 'ellipse', label: 'Эллипс', icon: '○', key: 'O' },
-  { id: 'line', label: 'Линия', icon: '╱', key: 'L' },
-  { id: 'text', label: 'Текст', icon: 'T', key: 'T' },
-  { id: 'image', label: 'Картинка', icon: '🖼', key: 'I' },
+const TOOLS: { id: Tool; label: string; icon: string }[] = [
+  { id: 'select', label: 'Выделить', icon: '↖' },
+  { id: 'hand', label: 'Рука', icon: '✋' },
+  { id: 'pen', label: 'Карандаш', icon: '✏️' },
+  { id: 'eraser', label: 'Ластик', icon: '🧽' },
+  { id: 'rect', label: 'Прямоугольник', icon: '▭' },
+  { id: 'ellipse', label: 'Эллипс', icon: '○' },
+  { id: 'triangle', label: 'Треугольник', icon: '△' },
+  { id: 'diamond', label: 'Ромб', icon: '◇' },
+  { id: 'star', label: 'Звезда', icon: '★' },
+  { id: 'line', label: 'Линия', icon: '╱' },
+  { id: 'polyline', label: 'Прямая по точкам', icon: '⤳' },
+  { id: 'text', label: 'Текст', icon: 'T' },
+  { id: 'image', label: 'Картинка', icon: '🖼' },
 ];
 
 const COLORS = ['#1a1a1a', '#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c'];
@@ -38,15 +42,7 @@ interface ToolbarProps {
 }
 
 export function Toolbar({
-  onUndo,
-  onRedo,
-  onClear,
-  canUndo,
-  canRedo,
-  onOpenSettings,
-  userId,
-  boardId,
-  viewport,
+  onUndo, onRedo, onClear, canUndo, canRedo, onOpenSettings, userId, boardId, viewport,
 }: ToolbarProps) {
   const tool = useBoardStore((s) => s.tool);
   const setTool = useBoardStore((s) => s.setTool);
@@ -71,28 +67,21 @@ export function Toolbar({
   const selectedElement = selectedId ? elements.get(selectedId) : null;
   const isTextSelected = selectedElement?.type === 'text' || tool === 'text';
 
-  const compressImage = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
+  const compressImage = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (event) => {
         const img = new window.Image();
         img.src = event.target?.result as string;
         img.onload = () => {
           const MAX_DIM = 1000;
-          let w = img.width;
-          let h = img.height;
+          let w = img.width, h = img.height;
           if (w > MAX_DIM || h > MAX_DIM) {
-            if (w > h) {
-              h = (MAX_DIM / w) * h;
-              w = MAX_DIM;
-            } else {
-              w = (MAX_DIM / h) * w;
-              h = MAX_DIM;
-            }
+            if (w > h) { h = (MAX_DIM / w) * h; w = MAX_DIM; }
+            else { w = (MAX_DIM / h) * w; h = MAX_DIM; }
           }
           const canvas = document.createElement('canvas');
-          canvas.width = w;
-          canvas.height = h;
+          canvas.width = w; canvas.height = h;
           const ctx = canvas.getContext('2d');
           if (!ctx) return reject(new Error('No canvas context'));
           ctx.drawImage(img, 0, 0, w, h);
@@ -103,67 +92,44 @@ export function Toolbar({
       reader.onerror = () => reject(new Error('File read error'));
       reader.readAsDataURL(file);
     });
-  };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (fileInputRef.current) fileInputRef.current.value = '';
-
     try {
       const compressedBase64 = await compressImage(file);
-
       if (compressedBase64.length > 2 * 1024 * 1024) {
         alert('Картинка слишком большая. Выберите изображение поменьше.');
         return;
       }
-
       const img = new window.Image();
       img.src = compressedBase64;
       img.onload = async () => {
         const maxW = 300;
-        let w = img.width;
-        let h = img.height;
-        if (w > maxW) {
-          h = (maxW / w) * h;
-          w = maxW;
-        }
-
+        let w = img.width, h = img.height;
+        if (w > maxW) { h = (maxW / w) * h; w = maxW; }
         const centerX = (window.innerWidth / 2 - viewport.x) / viewport.scale;
         const centerY = (window.innerHeight / 2 - viewport.y) / viewport.scale;
-
         const newEl = {
           id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           type: 'image' as const,
-          x: centerX - w / 2,
-          y: centerY - h / 2,
-          width: w,
-          height: h,
+          x: centerX - w / 2, y: centerY - h / 2,
+          width: w, height: h,
           imageUrl: compressedBase64,
-          color: '#000',
-          strokeWidth: 0,
-          zIndex: 0,
-          createdBy: userId,
-          version: 1,
-          updatedAt: Date.now(),
+          color: '#000', strokeWidth: 0,
+          zIndex: 5,
+          createdBy: userId, version: 1, updatedAt: Date.now(),
         };
-
-        // Сначала сохраняем на сервер через HTTP (гарантированно)
         try {
           await api.post(`/boards/${boardId}/elements`, { element: newEl });
         } catch (err) {
           console.error('Failed to save image via HTTP:', err);
-          alert('Не удалось сохранить картинку на сервер. Проверьте соединение.');
+          alert('Не удалось сохранить картинку.');
           return;
         }
-
-        // Потом добавляем локально (чтобы сразу увидеть)
         addElement(newEl);
         pushHistory({ type: 'add', element: newEl });
-
-        // Отправляем через сокет, чтобы другие увидели (если подключены)
-        // sendOperation не доступен здесь, но это не критично —
-        // другие увидят картинку при следующем входе на доску
       };
     } catch (err) {
       alert('Не удалось загрузить картинку');
@@ -172,13 +138,9 @@ export function Toolbar({
   };
 
   const btnStyle = (active: boolean): React.CSSProperties => ({
-    width: 40,
-    height: 40,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    fontSize: 18,
+    width: 40, height: 40,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    borderRadius: 8, fontSize: 16,
     background: active ? '#007bff' : '#f0f0f0',
     color: active ? '#fff' : '#333',
     transition: 'background 0.15s',
@@ -187,20 +149,10 @@ export function Toolbar({
   return (
     <div
       style={{
-        position: 'absolute',
-        top: 70,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 4,
-        padding: 8,
-        background: '#fff',
-        borderRadius: 12,
-        boxShadow: '0 2px 16px rgba(0,0,0,0.12)',
-        zIndex: 10,
-        flexWrap: 'wrap',
-        maxWidth: 'calc(100vw - 40px)',
+        position: 'absolute', top: 70, left: '50%', transform: 'translateX(-50%)',
+        display: 'flex', alignItems: 'center', gap: 4, padding: 8,
+        background: '#fff', borderRadius: 12, boxShadow: '0 2px 16px rgba(0,0,0,0.12)',
+        zIndex: 10, flexWrap: 'wrap', maxWidth: 'calc(100vw - 40px)',
       }}
     >
       {TOOLS.map((t) => (
@@ -211,19 +163,13 @@ export function Toolbar({
             if (t.id === 'image') fileInputRef.current?.click();
           }}
           style={btnStyle(tool === t.id)}
-          title={`${t.label} (${t.key})`}
+          title={t.label}
         >
           {t.icon}
         </button>
       ))}
 
-      <input
-        type="file"
-        accept="image/*"
-        ref={fileInputRef}
-        onChange={handleImageUpload}
-        style={{ display: 'none' }}
-      />
+      <input type="file" accept="image/*" ref={fileInputRef} onChange={handleImageUpload} style={{ display: 'none' }} />
 
       <div style={{ width: 1, height: 32, background: '#ddd', margin: '0 6px' }} />
 
@@ -232,10 +178,7 @@ export function Toolbar({
           key={c}
           onClick={() => setColor(c)}
           style={{
-            width: 28,
-            height: 28,
-            borderRadius: '50%',
-            background: c,
+            width: 28, height: 28, borderRadius: '50%', background: c,
             border: color === c ? '3px solid #333' : '2px solid #fff',
             boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
           }}
@@ -245,52 +188,28 @@ export function Toolbar({
 
       <label
         style={{
-          width: 28,
-          height: 28,
-          borderRadius: '50%',
-          border: '2px solid #fff',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+          width: 28, height: 28, borderRadius: '50%',
+          border: '2px solid #fff', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
           background: 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
           overflow: 'hidden',
         }}
         title="Свой цвет"
       >
-        <input
-          type="color"
-          value={color}
-          onChange={(e) => setColor(e.target.value)}
-          style={{
-            width: '150%',
-            height: '150%',
-            border: 'none',
-            padding: 0,
-            cursor: 'pointer',
-            background: 'transparent',
-          }}
-        />
+        <input type="color" value={color} onChange={(e) => setColor(e.target.value)}
+          style={{ width: '150%', height: '150%', border: 'none', padding: 0, cursor: 'pointer', background: 'transparent' }} />
       </label>
 
       <div style={{ width: 1, height: 32, background: '#ddd', margin: '0 6px' }} />
 
       {LINE_STYLES.map((ls) => (
-        <button
-          key={ls.id}
-          onClick={() => setLineStyle(ls.id)}
+        <button key={ls.id} onClick={() => setLineStyle(ls.id)}
           style={{
-            width: 32,
-            height: 32,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center',
             borderRadius: 6,
             background: lineStyle === ls.id ? '#e7f1ff' : 'transparent',
             border: lineStyle === ls.id ? '1px solid #007bff' : '1px solid transparent',
-            fontSize: 20,
-            color: '#333',
+            fontSize: 18, color: '#333',
           }}
           title={ls.label}
         >
@@ -300,83 +219,38 @@ export function Toolbar({
 
       <div style={{ width: 1, height: 32, background: '#ddd', margin: '0 6px' }} />
 
-      <input
-        type="range"
-        min={1}
-        max={10}
-        value={strokeWidth}
+      <input type="range" min={1} max={10} value={strokeWidth}
         onChange={(e) => setStrokeWidth(Number(e.target.value))}
         style={{ width: 80, cursor: 'pointer' }}
-        title={`Толщина ${strokeWidth}px`}
-      />
+        title={`Толщина ${strokeWidth}px`} />
 
       {isTextSelected && (
         <>
           <div style={{ width: 1, height: 32, background: '#ddd', margin: '0 6px' }} />
-          <select
-            value={fontFamily}
-            onChange={(e) => setFontFamily(e.target.value)}
-            style={{ padding: 6, borderRadius: 6, border: '1px solid #ddd' }}
-          >
-            {FONTS.map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
+          <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value)}
+            style={{ padding: 6, borderRadius: 6, border: '1px solid #ddd' }}>
+            {FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
           </select>
-          <select
-            value={fontSize}
-            onChange={(e) => setFontSize(Number(e.target.value))}
-            style={{ padding: 6, borderRadius: 6, border: '1px solid #ddd' }}
-          >
-            {FONT_SIZES.map((s) => (
-              <option key={s} value={s}>
-                {s}px
-              </option>
-            ))}
+          <select value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))}
+            style={{ padding: 6, borderRadius: 6, border: '1px solid #ddd' }}>
+            {FONT_SIZES.map((s) => <option key={s} value={s}>{s}px</option>)}
           </select>
         </>
       )}
 
       <div style={{ width: 1, height: 32, background: '#ddd', margin: '0 6px' }} />
 
-      <button
-        onClick={onUndo}
-        disabled={!canUndo}
-        style={{ ...btnStyle(false), opacity: canUndo ? 1 : 0.4 }}
-        title="Отменить (Ctrl+Z)"
-      >
-        ↶
-      </button>
-      <button
-        onClick={onRedo}
-        disabled={!canRedo}
-        style={{ ...btnStyle(false), opacity: canRedo ? 1 : 0.4 }}
-        title="Повторить (Ctrl+Y)"
-      >
-        ↷
-      </button>
+      <button onClick={onUndo} disabled={!canUndo}
+        style={{ ...btnStyle(false), opacity: canUndo ? 1 : 0.4 }} title="Отменить (Ctrl+Z)">↶</button>
+      <button onClick={onRedo} disabled={!canRedo}
+        style={{ ...btnStyle(false), opacity: canRedo ? 1 : 0.4 }} title="Повторить (Ctrl+Y)">↷</button>
 
-      <button onClick={onOpenSettings} style={{ ...btnStyle(false) }} title="Настройки доски">
-        ⚙️
-      </button>
+      <button onClick={onOpenSettings} style={btnStyle(false)} title="Настройки доски">⚙️</button>
 
       {isOwner && (
-        <button
-          onClick={onClear}
-          style={{
-            padding: '0 12px',
-            height: 40,
-            borderRadius: 8,
-            background: '#fee',
-            color: '#c00',
-            fontSize: 13,
-            fontWeight: 500,
-          }}
-          title="Очистить доску"
-        >
-          Очистить
-        </button>
+        <button onClick={onClear}
+          style={{ padding: '0 12px', height: 40, borderRadius: 8, background: '#fee', color: '#c00', fontSize: 13, fontWeight: 500 }}
+          title="Очистить доску">Очистить</button>
       )}
     </div>
   );

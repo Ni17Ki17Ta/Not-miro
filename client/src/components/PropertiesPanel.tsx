@@ -21,10 +21,9 @@ export function PropertiesPanel({ sendOperation }: PropertiesPanelProps) {
   const updateElement = useBoardStore((s) => s.updateElement);
   const pushHistory = useBoardStore((s) => s.pushHistory);
   const removeElement = useBoardStore((s) => s.removeElement);
-  const bringToFront = useBoardStore((s) => s.bringToFront);
+  const setElementZIndex = useBoardStore((s) => s.setElementZIndex);
 
   const el = selectedId ? elements.get(selectedId) : null;
-
   if (!el) return null;
 
   const handleUpdate = (changes: Partial<BoardElement>) => {
@@ -40,63 +39,62 @@ export function PropertiesPanel({ sendOperation }: PropertiesPanelProps) {
     sendOperation({ type: 'remove', elementId: el.id, createdBy: el.createdBy });
   };
 
-  const handleBringFront = () => {
-    bringToFront(el.id);
+  const handleZIndexChange = (newZ: number) => {
+    const updated = { ...el, zIndex: newZ };
+    setElementZIndex(el.id, newZ);
+    pushHistory({ type: 'update', element: updated });
+    sendOperation({ type: 'update', element: updated });
   };
 
   const isText = el.type === 'text';
-  const isShape = ['rect', 'ellipse'].includes(el.type);
+  const isShape = ['rect', 'ellipse', 'triangle', 'star', 'diamond'].includes(el.type);
 
   return (
     <div style={{
-      position: 'absolute',
-      top: 70,
-      right: 20,
-      width: 280,
-      background: '#fff',
-      borderRadius: 12,
-      boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-      padding: 16,
-      zIndex: 100,
-      maxHeight: 'calc(100vh - 90px)',
-      overflowY: 'auto',
+      position: 'absolute', top: 70, right: 20, width: 280,
+      background: '#fff', borderRadius: 12,
+      boxShadow: '0 4px 20px rgba(0,0,0,0.15)', padding: 16,
+      zIndex: 100, maxHeight: 'calc(100vh - 90px)', overflowY: 'auto',
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h3 style={{ margin: 0, fontSize: 14, color: '#333' }}>
           {isText ? 'Текст' : el.type === 'image' ? 'Картинка' : 'Фигура'}
         </h3>
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button onClick={handleBringFront} style={{ background: '#f0f0f0', border: 'none', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: 12 }} title="На передний план">⬆️</button>
-          <button onClick={handleDelete} style={{ background: '#fee', color: '#c00', border: 'none', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: 12 }} title="Удалить">🗑</button>
+        <button onClick={handleDelete}
+          style={{ background: '#fee', color: '#c00', border: 'none', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: 12 }}
+          title="Удалить">🗑</button>
+      </div>
+
+      {/* Уровень слоя */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>
+          Слой: {el.zIndex || 5} (1 — сверху, 10 — снизу)
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4 }}>
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((z) => (
+            <button
+              key={z}
+              onClick={() => handleZIndexChange(z)}
+              style={{
+                padding: '6px 0',
+                borderRadius: 6,
+                background: el.zIndex === z ? '#007bff' : '#f5f5f5',
+                color: el.zIndex === z ? '#fff' : '#333',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 500,
+              }}
+            >
+              {z}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Цвет контура */}
       {!isText && el.type !== 'image' && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>Цвет контура</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {COLORS.map((c) => (
-              <button
-                key={c}
-                onClick={() => handleUpdate({ color: c })}
-                style={{
-                  width: 24, height: 24, borderRadius: '50%', background: c,
-                  border: el.color === c ? '3px solid #007bff' : '1px solid #ddd',
-                  cursor: 'pointer',
-                }}
-              />
-            ))}
-            <input type="color" value={el.color} onChange={(e) => handleUpdate({ color: e.target.value })}
-              style={{ width: 24, height: 24, border: 'none', padding: 0, cursor: 'pointer', borderRadius: '50%' }} />
-          </div>
-        </div>
-      )}
-
-      {/* Цвет текста */}
-      {isText && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>Цвет текста</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {COLORS.map((c) => (
               <button key={c} onClick={() => handleUpdate({ color: c })}
@@ -112,7 +110,22 @@ export function PropertiesPanel({ sendOperation }: PropertiesPanelProps) {
         </div>
       )}
 
-      {/* Заливка */}
+      {isText && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>Цвет текста</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {COLORS.map((c) => (
+              <button key={c} onClick={() => handleUpdate({ color: c })}
+                style={{
+                  width: 24, height: 24, borderRadius: '50%', background: c,
+                  border: el.color === c ? '3px solid #007bff' : '1px solid #ddd',
+                  cursor: 'pointer',
+                }} />
+            ))}
+          </div>
+        </div>
+      )}
+
       {isShape && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>Заливка</div>
@@ -124,7 +137,7 @@ export function PropertiesPanel({ sendOperation }: PropertiesPanelProps) {
                 border: el.fill === 'transparent' ? '3px solid #007bff' : '1px solid #ddd',
                 cursor: 'pointer',
               }} title="Без заливки" />
-            {COLORS.filter(c => c !== '#ffffff').map((c) => (
+            {COLORS.filter((c) => c !== '#ffffff').map((c) => (
               <button key={c} onClick={() => handleUpdate({ fill: c })}
                 style={{
                   width: 24, height: 24, borderRadius: '50%', background: c,
@@ -132,24 +145,19 @@ export function PropertiesPanel({ sendOperation }: PropertiesPanelProps) {
                   cursor: 'pointer',
                 }} />
             ))}
-            <input type="color" value={el.fill === 'transparent' ? '#ffffff' : el.fill}
-              onChange={(e) => handleUpdate({ fill: e.target.value })}
-              style={{ width: 24, height: 24, border: 'none', padding: 0, cursor: 'pointer', borderRadius: '50%' }} />
           </div>
         </div>
       )}
 
-      {/* Толщина */}
       {!isText && el.type !== 'image' && (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>Толщина контура: {el.strokeWidth}px</div>
+          <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>Толщина: {el.strokeWidth}px</div>
           <input type="range" min={1} max={10} value={el.strokeWidth}
             onChange={(e) => handleUpdate({ strokeWidth: Number(e.target.value) })}
             style={{ width: '100%' }} />
         </div>
       )}
 
-      {/* Стиль линии */}
       {!isText && el.type !== 'image' && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>Стиль линии</div>
@@ -161,15 +169,12 @@ export function PropertiesPanel({ sendOperation }: PropertiesPanelProps) {
                   background: el.lineStyle === ls.id ? '#e7f1ff' : '#f5f5f5',
                   border: el.lineStyle === ls.id ? '1px solid #007bff' : '1px solid transparent',
                   fontSize: 18, cursor: 'pointer',
-                }} title={ls.label}>
-                {ls.icon}
-              </button>
+                }} title={ls.label}>{ls.icon}</button>
             ))}
           </div>
         </div>
       )}
 
-      {/* Настройки текста */}
       {isText && (
         <>
           <div style={{ marginBottom: 16 }}>

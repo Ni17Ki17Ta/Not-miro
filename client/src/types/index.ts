@@ -23,9 +23,34 @@ export interface BoardListItem {
   updatedAt: string;
 }
 
-export type ElementType = 'pen' | 'rect' | 'ellipse' | 'line' | 'text' | 'image';
-// ДОБАВЛЕН 'hand'
-export type Tool = 'select' | 'hand' | 'pen' | 'eraser' | 'rect' | 'ellipse' | 'line' | 'text' | 'image';
+// Расширяем набор фигур
+export type ElementType =
+  | 'pen'
+  | 'rect'
+  | 'ellipse'
+  | 'triangle'
+  | 'star'
+  | 'diamond'
+  | 'line'
+  | 'polyline'
+  | 'text'
+  | 'image';
+
+export type Tool =
+  | 'select'
+  | 'hand'
+  | 'pen'
+  | 'eraser'
+  | 'rect'
+  | 'ellipse'
+  | 'triangle'
+  | 'star'
+  | 'diamond'
+  | 'line'
+  | 'polyline'
+  | 'text'
+  | 'image';
+
 export type LineStyle = 'solid' | 'dashed' | 'dotted' | 'wavy';
 export type BoardBackground = 'light-grid' | 'dark-grid' | 'dots' | 'lines' | 'plain';
 
@@ -46,7 +71,7 @@ export interface BoardElement {
   strokeWidth: number;
   lineStyle?: LineStyle;
   imageUrl?: string;
-  zIndex: number;
+  zIndex: number;   // 1 — на самом верху, 10 — в самом низу
   createdBy: string;
   version: number;
   updatedAt: number;
