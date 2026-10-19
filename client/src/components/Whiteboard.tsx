@@ -11,23 +11,33 @@ interface WhiteboardProps {
   userName: string;
 }
 
+// Безопасная волна: не отбрасывает точки, работает на коротких линиях
 function getWavyPoints(points: number[], amplitude = 4, period = 20): number[] {
-  if (points.length < 4) return points;
+  if (points.length < 4) return points; // слишком мало точек — возвращаем как есть
+
   const wavy: number[] = [];
   for (let i = 0; i < points.length - 2; i += 2) {
     const x1 = points[i], y1 = points[i + 1];
     const x2 = points[i + 2], y2 = points[i + 3];
     const dx = x2 - x1, dy = y2 - y1;
     const len = Math.sqrt(dx * dx + dy * dy);
-    if (len < 1) { wavy.push(x1, y1); continue; }
+
+    // Всегда добавляем начальную точку сегмента
+    wavy.push(x1, y1);
+
+    if (len < 1) continue;
+
     const nx = -dy / len, ny = dx / len;
-    const steps = Math.max(1, Math.floor(len / 4));
-    for (let s = 0; s < steps; s++) {
+    const steps = Math.max(2, Math.floor(len / 4));
+
+    // Начинаем с 1 (начало уже добавлено), до steps - 1
+    for (let s = 1; s < steps; s++) {
       const t = s / steps;
-      const offset = Math.sin(((i / 2) + t) * Math.PI * 2 * (len / period)) * amplitude;
+      const offset = Math.sin(t * Math.PI * 2 * (len / period)) * amplitude;
       wavy.push(x1 + dx * t + nx * offset, y1 + dy * t + ny * offset);
     }
   }
+  // Добавляем последнюю точку
   wavy.push(points[points.length - 2], points[points.length - 1]);
   return wavy;
 }
@@ -54,6 +64,7 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
   const [draftElement, setDraftElement] = useState<BoardElement | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const lastPanPos = useRef<{ x: number; y: number } | null>(null);
 
   const [textInput, setTextInput] = useState<{ x: number; y: number; width: number; height: number; text: string } | null>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
@@ -120,23 +131,42 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     } else if (trRef.current) trRef.current.nodes([]);
   }, [selectedId, elements, tool]);
 
-  // ПРАВИЛЬНАЯ ФОРМУЛА: pointer в системе Stage, viewport вычитаем вручную
-  const getPointerPos = (): { x: number; y: number } | null => {
-    const stage = stageRef.current;
-    if (!stage) return null;
-    const pointer = stage.getPointerPosition();
-    if (!pointer) return null;
+  const getPointerPosFromEvent = (evt: MouseEvent | Touch): { x: number; y: number } | null => {
+    const container = containerRef.current;
+    if (!container) return null;
+    const rect = container.getBoundingClientRect();
+
+    let clientX: number, clientY: number;
+    if ('touches' in evt && evt.touches.length > 0) {
+      clientX = evt.touches[0].clientX;
+      clientY = evt.touches[0].clientY;
+    } else if ('clientX' in evt) {
+      clientX = evt.clientX;
+      clientY = evt.clientY;
+    } else {
+      return null;
+    }
+
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+
     return {
-      x: (pointer.x - viewport.x) / viewport.scale,
-      y: (pointer.y - viewport.y) / viewport.scale,
+      x: (localX - viewport.x) / viewport.scale,
+      y: (localY - viewport.y) / viewport.scale,
     };
   };
 
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    if (tool === 'hand' || e.evt.button === 1 || e.evt.getModifierState?.(' ')) { setIsPanning(true); return; }
+    if (tool === 'hand' || e.evt.button === 1 || e.evt.getModifierState?.(' ')) {
+      setIsPanning(true);
+      lastPanPos.current = { x: e.evt.clientX, y: e.evt.clientY };
+      return;
+    }
     if (tool === 'select') { if (e.target === e.target.getStage()) setSelected(null); return; }
-    const pos = getPointerPos();
+
+    const pos = getPointerPosFromEvent(e.evt);
     if (!pos) return;
+
     if (tool === 'eraser') { setIsDrawing(true); return; }
     setIsDrawing(true);
 
@@ -155,13 +185,16 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
   };
 
   const handleMouseMove = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    const pos = getPointerPos();
-    if (pos) sendCursor(pos.x, pos.y);
-
-    if (isPanning) {
-      setViewport({ ...viewport, x: viewport.x + e.evt.movementX, y: viewport.y + e.evt.movementY });
+    if (isPanning && lastPanPos.current) {
+      const dx = e.evt.clientX - lastPanPos.current.x;
+      const dy = e.evt.clientY - lastPanPos.current.y;
+      lastPanPos.current = { x: e.evt.clientX, y: e.evt.clientY };
+      setViewport((prev) => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
       return;
     }
+
+    const pos = getPointerPosFromEvent(e.evt);
+    if (pos) sendCursor(pos.x, pos.y);
 
     if (!isDrawing) return;
 
@@ -198,7 +231,11 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
   };
 
   const handleMouseUp = () => {
-    if (isPanning) { setIsPanning(false); return; }
+    if (isPanning) {
+      setIsPanning(false);
+      lastPanPos.current = null;
+      return;
+    }
     if (!isDrawing || !draftElement) { setIsDrawing(false); return; }
 
     let shouldSave = true;
@@ -224,18 +261,25 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
 
   const handleWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
-    const stage = stageRef.current;
-    if (!stage) return;
-    const pointer = stage.getPointerPosition();
-    if (!pointer) return;
-    const oldScale = viewport.scale;
-    const newScale = e.evt.deltaY < 0 ? oldScale * 1.1 : oldScale / 1.1;
-    const clamped = Math.max(0.2, Math.min(4, newScale));
-    const mousePointTo = { x: (pointer.x - viewport.x) / oldScale, y: (pointer.y - viewport.y) / oldScale };
-    setViewport({
-      scale: clamped,
-      x: pointer.x - mousePointTo.x * clamped,
-      y: pointer.y - mousePointTo.y * clamped,
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const localX = e.evt.clientX - rect.left;
+    const localY = e.evt.clientY - rect.top;
+
+    setViewport((prev) => {
+      const oldScale = prev.scale;
+      const newScale = e.evt.deltaY < 0 ? oldScale * 1.1 : oldScale / 1.1;
+      const clamped = Math.max(0.2, Math.min(4, newScale));
+      const mousePointTo = {
+        x: (localX - prev.x) / oldScale,
+        y: (localY - prev.y) / oldScale,
+      };
+      return {
+        scale: clamped,
+        x: localX - mousePointTo.x * clamped,
+        y: localY - mousePointTo.y * clamped,
+      };
     });
   };
 
@@ -314,9 +358,23 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     const dash = ls === 'dashed' ? [10, 6] : ls === 'dotted' ? [2, 6] : undefined;
 
     if (el.type === 'pen' && el.points) {
+      // ВАЖНО: волну применяем ТОЛЬКО если style === 'wavy' и точек > 4
       let pts = el.points;
-      if (ls === 'wavy') pts = getWavyPoints(pts);
-      return <Line {...props} points={pts} stroke={el.color} strokeWidth={el.strokeWidth} lineCap="round" lineJoin="round" dash={dash} tension={ls === 'wavy' ? 0 : 0.3} />;
+      if (ls === 'wavy' && pts.length > 4) {
+        pts = getWavyPoints(pts);
+      }
+      return (
+        <Line
+          {...props}
+          points={pts}
+          stroke={el.color}
+          strokeWidth={el.strokeWidth}
+          lineCap="round"
+          lineJoin="round"
+          dash={dash}
+          tension={ls === 'wavy' ? 0 : 0.3}
+        />
+      );
     }
     if (el.type === 'rect') {
       return <Rect {...props} width={el.width} height={el.height} stroke={el.color} strokeWidth={el.strokeWidth} fill={el.fill || 'transparent'} dash={dash} />;
@@ -338,7 +396,9 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     }
     if (el.type === 'line' && el.points) {
       let pts = el.points;
-      if (ls === 'wavy') pts = getWavyPoints(pts);
+      if (ls === 'wavy' && pts.length > 4) {
+        pts = getWavyPoints(pts);
+      }
       return <Line {...props} points={pts} stroke={el.color} strokeWidth={el.strokeWidth} lineCap="round" dash={dash} tension={ls === 'wavy' ? 0 : 0} />;
     }
     if (el.type === 'text' && el.text) {
@@ -357,7 +417,7 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     const RANGE = 3000;
 
     if (background === 'light-grid' || background === 'dark-grid') {
-      const stroke = background === 'light-grid' ? '#eee' : '#444';
+      const stroke = background === 'light-grid' ? '#ddd' : '#555';
       for (let x = -RANGE; x <= RANGE; x += GRID_SIZE) {
         lines.push(<Line key={`v${x}`} points={[x, -RANGE, x, RANGE]} stroke={stroke} strokeWidth={0.5} listening={false} />);
       }
@@ -368,13 +428,13 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     if (background === 'dots') {
       for (let x = -RANGE; x <= RANGE; x += 40) {
         for (let y = -RANGE; y <= RANGE; y += 40) {
-          lines.push(<Rect key={`d${x}-${y}`} x={x} y={y} width={2} height={2} fill="#ccc" listening={false} />);
+          lines.push(<Rect key={`d${x}-${y}`} x={x} y={y} width={2} height={2} fill="#bbb" listening={false} />);
         }
       }
     }
     if (background === 'lines') {
       for (let y = -RANGE; y <= RANGE; y += GRID_SIZE) {
-        lines.push(<Line key={`h${y}`} points={[-RANGE, y, RANGE, y]} stroke="#eee" strokeWidth={0.5} listening={false} />);
+        lines.push(<Line key={`h${y}`} points={[-RANGE, y, RANGE, y]} stroke="#ddd" strokeWidth={0.5} listening={false} />);
       }
     }
     return lines;
@@ -385,9 +445,7 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
       ref={containerRef}
       style={{
         width: '100%', height: '100%',
-        position: 'absolute',
-        top: 0,
-        left: 0,
+        position: 'absolute', top: 0, left: 0,
         overflow: 'hidden',
         backgroundColor: background === 'dark-grid' ? '#333' : '#fafafa',
       }}

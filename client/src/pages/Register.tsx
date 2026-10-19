@@ -1,5 +1,5 @@
 import { useState, useEffect, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
 import { register } from '../api/auth';
 import { getErrorMessage } from '../api/client';
@@ -13,12 +13,18 @@ export default function Register() {
   const [submitting, setSubmitting] = useState(false);
 
   const navigate = useNavigate();
+  const location = useLocation();
   const setAuth = useAuthStore((s) => s.setAuth);
-  const user = useAuthStore((s) => s.user);
+  const accessToken = useAuthStore((s) => s.accessToken);
+  const bootChecked = useAuthStore((s) => s.bootChecked);
+
+  const from = (location.state as { from?: string })?.from || '/';
 
   useEffect(() => {
-    if (user) navigate('/', { replace: true });
-  }, [user, navigate]);
+    if (bootChecked && accessToken) {
+      navigate(from, { replace: true });
+    }
+  }, [bootChecked, accessToken, navigate, from]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -34,7 +40,7 @@ export default function Register() {
       const res = await register(email.trim(), password, name.trim());
       setAuth(res.user, res.accessToken);
       toast.success(`Аккаунт создан. Добро пожаловать, ${res.user.name}!`);
-      navigate('/', { replace: true });
+      navigate(from, { replace: true });
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -89,7 +95,7 @@ export default function Register() {
         </form>
 
         <div className="footer">
-          Уже есть аккаунт? <Link to="/login">Войти</Link>
+          Уже есть аккаунт? <Link to="/login" state={{ from }}>Войти</Link>
         </div>
       </div>
     </div>

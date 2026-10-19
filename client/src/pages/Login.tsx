@@ -1,5 +1,5 @@
 import { useState, useEffect, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
 import { login } from '../api/auth';
 import { getErrorMessage } from '../api/client';
@@ -12,13 +12,19 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
 
   const navigate = useNavigate();
+  const location = useLocation();
   const setAuth = useAuthStore((s) => s.setAuth);
-  const user = useAuthStore((s) => s.user);
+  const accessToken = useAuthStore((s) => s.accessToken);
+  const bootChecked = useAuthStore((s) => s.bootChecked);
 
-  // Если уже авторизован (после refresh при загрузке) — сразу на главную
+  // Куда вернуть после логина: /join/:token, /board/:id и т.д.
+  const from = (location.state as { from?: string })?.from || '/';
+
   useEffect(() => {
-    if (user) navigate('/', { replace: true });
-  }, [user, navigate]);
+    if (bootChecked && accessToken) {
+      navigate(from, { replace: true });
+    }
+  }, [bootChecked, accessToken, navigate, from]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -28,7 +34,7 @@ export default function Login() {
       const res = await login(email.trim(), password);
       setAuth(res.user, res.accessToken);
       toast.success(`Добро пожаловать, ${res.user.name}!`);
-      navigate('/', { replace: true });
+      navigate(from, { replace: true });
     } catch (err) {
       const msg = getErrorMessage(err);
       setError(msg);
@@ -71,7 +77,7 @@ export default function Login() {
         </form>
 
         <div className="footer">
-          Нет аккаунта? <Link to="/register">Зарегистрироваться</Link>
+          Нет аккаунта? <Link to="/register" state={{ from }}>Зарегистрироваться</Link>
         </div>
       </div>
     </div>

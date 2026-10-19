@@ -32,11 +32,16 @@ export const useAuthStore = create<AuthState>((set) => ({
   setLoading: (v) => set({ loading: v }),
 
   tryRestore: async () => {
+    // Пробуем восстановить сессию через refresh-cookie.
+    // Это должно завершиться ДО того, как PrivateRoute/PublicRoute примут решение.
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/auth/refresh`, {
-        method: 'POST',
-        credentials: 'include',
-      });
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/auth/refresh`,
+        {
+          method: 'POST',
+          credentials: 'include',
+        },
+      );
       if (!res.ok) {
         set({ loading: false, bootChecked: true });
         return false;

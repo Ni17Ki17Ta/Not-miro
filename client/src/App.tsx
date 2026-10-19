@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Routes, Route, Navigate, Link } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { useAuthStore } from './store/auth';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -8,56 +8,53 @@ import Board from './pages/Board';
 import { Toasts } from './components/Toasts';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const token = useAuthStore((s) => s.accessToken);
+  const accessToken = useAuthStore((s) => s.accessToken);
   const bootChecked = useAuthStore((s) => s.bootChecked);
-  
-  // Пока проверяем сессию — показываем загрузку, чтобы не мигать логином
+  const location = useLocation();
+
+  // Пока идёт восстановление сессии — показываем загрузку
   if (!bootChecked) {
     return (
       <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        fontSize: 16,
-        color: '#666',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minHeight: '100vh', fontSize: 16, color: '#666',
       }}>
         Загрузка...
       </div>
     );
   }
-  
-  return token ? <>{children}</> : <Navigate to="/login" replace />;
+
+  // Если токена нет — на логин с сохранением URL
+  return accessToken
+    ? <>{children}</>
+    : <Navigate to="/login" state={{ from: location.pathname + location.search }} replace />;
 }
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
-  const token = useAuthStore((s) => s.accessToken);
+  const accessToken = useAuthStore((s) => s.accessToken);
   const bootChecked = useAuthStore((s) => s.bootChecked);
-  
+  const location = useLocation();
+  const from = (location.state as { from?: string })?.from || '/';
+
   if (!bootChecked) {
     return (
       <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        fontSize: 16,
-        color: '#666',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minHeight: '100vh', fontSize: 16, color: '#666',
       }}>
         Загрузка...
       </div>
     );
   }
-  
-  return token ? <Navigate to="/" replace /> : <>{children}</>;
+
+  // Если уже авторизован — на исходный URL (например /join/:token)
+  return accessToken ? <Navigate to={from} replace /> : <>{children}</>;
 }
 
 export default function App() {
   const tryRestore = useAuthStore((s) => s.tryRestore);
 
   useEffect(() => {
-    // При первом запуске пробуем восстановить сессию через refresh-cookie.
-    // Если cookie валидная — пользователь окажется залогинен без ввода пароля.
     void tryRestore();
   }, [tryRestore]);
 
