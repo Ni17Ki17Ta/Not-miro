@@ -9,14 +9,6 @@ interface JoinAck {
   error?: string;
 }
 
-/**
- * Синхронизация доски с сервером.
- * - Подключается к комнате (`join-board`)
- * - Принимает начальное состояние (`board-state`)
- * - Применяет входящие операции (`board-operation`)
- * - Отслеживает участников и курсоры
- * - Возвращает функции для отправки операций и курсора
- */
 export function useBoardSync(boardId: string, inviteToken?: string) {
   const applyRemoteOperation = useBoardStore((s) => s.applyRemoteOperation);
   const setElements = useBoardStore((s) => s.setElements);
@@ -31,18 +23,12 @@ export function useBoardSync(boardId: string, inviteToken?: string) {
     const socket = getSocket();
 
     const doJoin = () => {
-      socket.emit(
-        'join-board',
-        { boardId, inviteToken },
-        (ack: JoinAck) => {
-          if (!ack?.ok) {
-            console.error('[sync] join failed:', ack?.error);
-          }
-        },
-      );
+      socket.emit('join-board', { boardId, inviteToken }, (ack: JoinAck) => {
+        if (!ack?.ok) {
+          console.error('[sync] join failed:', ack?.error);
+        }
+      });
     };
-
-    // --- Приём событий от сервера ---
 
     const onBoardState = (data: { elements: BoardElement[]; isOwner: boolean }) => {
       setElements(data.elements || []);
@@ -83,10 +69,16 @@ export function useBoardSync(boardId: string, inviteToken?: string) {
     socket.on('user-left', onUserLeft);
     socket.on('cursor-move', onCursor);
 
-    // Подключаемся к комнате сейчас, если соединение уже активно
-    // и повторяем при reconnect
     if (socket.connected) doJoin();
     socket.on('connect', doJoin);
+
+    // Принудительное сохранение при закрытии/обновлении страницы
+    const handleBeforeUnload = () => {
+      if (socket.connected) {
+        socket.emit('save-now');
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
       socket.off('board-state', onBoardState);
@@ -96,6 +88,7 @@ export function useBoardSync(boardId: string, inviteToken?: string) {
       socket.off('user-left', onUserLeft);
       socket.off('cursor-move', onCursor);
       socket.off('connect', doJoin);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
       socket.emit('leave-board');
     };
   }, [
@@ -110,8 +103,6 @@ export function useBoardSync(boardId: string, inviteToken?: string) {
     setCursor,
     removeCursor,
   ]);
-
-  // --- Отправка операций ---
 
   const sendOperation = useCallback((op: Operation) => {
     const socket = getSocket();
