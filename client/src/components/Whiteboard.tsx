@@ -122,7 +122,8 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     } else if (trRef.current) trRef.current.nodes([]);
   }, [selectedId, elements, tool]);
 
-  const getPointerPosFromEvent = (evt: MouseEvent | TouchEvent | Touch): { x: number; y: number } | null => {
+  // Координата в "мировой" системе (учитывает viewport)
+  const getPointerPosFromEvent = (evt: MouseEvent | TouchEvent): { x: number; y: number } | null => {
     const container = containerRef.current;
     if (!container) return null;
     const rect = container.getBoundingClientRect();
@@ -130,10 +131,13 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     let clientX = 0;
     let clientY = 0;
 
-    if ('touches' in evt && Array.isArray((evt as TouchEvent).touches) && (evt as TouchEvent).touches.length > 0) {
-      clientX = (evt as TouchEvent).touches[0].clientX;
-      clientY = (evt as TouchEvent).touches[0].clientY;
-    } else if ('clientX' in evt && typeof (evt as MouseEvent).clientX === 'number') {
+    if ('touches' in evt && evt.touches.length > 0) {
+      clientX = evt.touches[0].clientX;
+      clientY = evt.touches[0].clientY;
+    } else if ('changedTouches' in evt && evt.changedTouches.length > 0) {
+      clientX = evt.changedTouches[0].clientX;
+      clientY = evt.changedTouches[0].clientY;
+    } else if ('clientX' in evt) {
       clientX = (evt as MouseEvent).clientX;
       clientY = (evt as MouseEvent).clientY;
     } else {
@@ -143,22 +147,10 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     const localX = clientX - rect.left;
     const localY = clientY - rect.top;
 
-    const result = {
+    return {
       x: (localX - viewport.x) / viewport.scale,
       y: (localY - viewport.y) / viewport.scale,
     };
-
-    // ★★★ DEBUG: копируй эти строки из консоли и пришли мне ★★★
-    console.log('DEBUG pointer:', {
-      clientX, clientY,
-      rectLeft: rect.left, rectTop: rect.top,
-      localX, localY,
-      viewportX: viewport.x, viewportY: viewport.y,
-      scale: viewport.scale,
-      result,
-    });
-
-    return result;
   };
 
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -169,23 +161,34 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     }
     if (tool === 'select') { if (e.target === e.target.getStage()) setSelected(null); return; }
 
-    const pos = getPointerPosFromEvent(e.evt);
+    const pos = getPointerPosFromEvent(e.evt as any);
     if (!pos) return;
 
     if (tool === 'eraser') { setIsDrawing(true); return; }
     setIsDrawing(true);
 
     const id = `${userId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    // ★★★ ГЛАВНОЕ ИСПРАВЛЕНИЕ ★★★
+    // Для pen и line: x/y = 0, points = абсолютные мировые координаты.
+    // Иначе Konva смещает линию на (x,y) ВТОРОЙ раз.
+    const isPolyline = tool === 'pen' || tool === 'line';
+
     const base: BoardElement = {
-      id, type: tool as ElementType, x: pos.x, y: pos.y,
+      id,
+      type: tool as ElementType,
+      x: isPolyline ? 0 : pos.x,
+      y: isPolyline ? 0 : pos.y,
       color, fill: fillColor, strokeWidth, lineStyle, fontSize, fontFamily,
       zIndex: 0, createdBy: userId, version: 1, updatedAt: Date.now(),
     };
+
     if (tool === 'pen') base.points = [pos.x, pos.y];
+    if (tool === 'line') base.points = [pos.x, pos.y];
     if (tool === 'rect') { base.width = 0; base.height = 0; }
     if (tool === 'ellipse') base.radius = 0;
-    if (tool === 'line') base.points = [pos.x, pos.y];
     if (tool === 'text') { base.width = 0; base.height = 0; }
+
     setDraftElement(base);
   };
 
@@ -198,7 +201,7 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
       return;
     }
 
-    const pos = getPointerPosFromEvent(e.evt);
+    const pos = getPointerPosFromEvent(e.evt as any);
     if (pos) sendCursor(pos.x, pos.y);
 
     if (!isDrawing) return;
@@ -226,12 +229,21 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     if (!draftElement || !pos) return;
 
     const updated = { ...draftElement };
-    if (tool === 'pen') updated.points = [...(draftElement.points || []), pos.x, pos.y];
-    else if (tool === 'rect' || tool === 'text') { updated.width = pos.x - draftElement.x; updated.height = pos.y - draftElement.y; }
-    else if (tool === 'ellipse') {
+
+    if (tool === 'pen') {
+      // точки — абсолютные
+      updated.points = [...(draftElement.points || []), pos.x, pos.y];
+    } else if (tool === 'line') {
+      // старт — первая точка из points, конец — текущая
+      const pts = draftElement.points || [0, 0];
+      updated.points = [pts[0], pts[1], pos.x, pos.y];
+    } else if (tool === 'rect' || tool === 'text') {
+      updated.width = pos.x - draftElement.x;
+      updated.height = pos.y - draftElement.y;
+    } else if (tool === 'ellipse') {
       const dx = pos.x - draftElement.x, dy = pos.y - draftElement.y;
       updated.radius = Math.sqrt(dx * dx + dy * dy);
-    } else if (tool === 'line') updated.points = [draftElement.x, draftElement.y, pos.x, pos.y];
+    }
     setDraftElement(updated);
   };
 
@@ -308,10 +320,23 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
 
   const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>, el: BoardElement) => {
     const node = e.target;
-    const updated = { ...el, x: node.x(), y: node.y() };
-    updateElement(updated);
-    pushHistory({ type: 'update', element: updated });
-    sendOperation({ type: 'update', element: updated });
+    // Для pen/line x/y = 0, а points сдвигаются на дельту драга
+    if (el.type === 'pen' || el.type === 'line') {
+      const dx = node.x();
+      const dy = node.y();
+      const newPoints = (el.points || []).map((p, i) => p + (i % 2 === 0 ? dx : dy));
+      const updated = { ...el, x: 0, y: 0, points: newPoints };
+      // Сбрасываем позицию узла обратно в 0
+      node.x(0); node.y(0);
+      updateElement(updated);
+      pushHistory({ type: 'update', element: updated });
+      sendOperation({ type: 'update', element: updated });
+    } else {
+      const updated = { ...el, x: node.x(), y: node.y() };
+      updateElement(updated);
+      pushHistory({ type: 'update', element: updated });
+      sendOperation({ type: 'update', element: updated });
+    }
   };
 
   const handleTransformEnd = (e: Konva.KonvaEventObject<Event>, el: BoardElement) => {
