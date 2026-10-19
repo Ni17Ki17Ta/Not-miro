@@ -11,8 +11,6 @@ interface WhiteboardProps {
   userName: string;
 }
 
-// ============ Волнистая линия (правильная) ============
-
 function getWavyPoints(points: number[], amplitude = 4, period = 20): number[] {
   if (points.length < 4) return points;
   const wavy: number[] = [];
@@ -43,15 +41,7 @@ function getWavyPoints(points: number[], amplitude = 4, period = 20): number[] {
   return wavy;
 }
 
-// ============ Картинка ============
-
-function KonvaImageElement({
-  el,
-  commonProps,
-}: {
-  el: BoardElement;
-  commonProps: any;
-}) {
+function KonvaImageElement({ el, commonProps }: { el: BoardElement; commonProps: any }) {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
 
   useEffect(() => {
@@ -63,17 +53,8 @@ function KonvaImageElement({
 
   if (!image) return null;
 
-  return (
-    <KonvaImage
-      {...commonProps}
-      image={image}
-      width={el.width}
-      height={el.height}
-    />
-  );
+  return <KonvaImage {...commonProps} image={image} width={el.width} height={el.height} />;
 }
-
-// ============ Компонент ============
 
 export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -118,19 +99,22 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     (a, b) => (a.zIndex || 0) - (b.zIndex || 0),
   );
 
-  const getBgStyle = () => {
-    if (background === 'plain') return { backgroundColor: '#fafafa' };
-    if (background === 'light-grid') return { backgroundColor: '#fafafa' };
-    if (background === 'dark-grid') return { backgroundColor: '#333' };
-    if (background === 'dots') return { backgroundColor: '#fafafa' };
-    if (background === 'lines') return { backgroundColor: '#fafafa' };
-    return {};
-  };
-
+  // Реальный размер контейнера (без учета отступов)
   useEffect(() => {
-    const onResize = () => setSize({ width: window.innerWidth, height: window.innerHeight });
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    const updateSize = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        setSize({ width: rect.width, height: rect.height });
+      }
+    };
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    const observer = new ResizeObserver(updateSize);
+    if (containerRef.current) observer.observe(containerRef.current);
+    return () => {
+      window.removeEventListener('resize', updateSize);
+      observer.disconnect();
+    };
   }, []);
 
   useEffect(() => {
@@ -169,6 +153,7 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     }
   }, [selectedId, elements, tool]);
 
+  // ВАЖНО: координаты с учётом viewport и точного положения Stage в контейнере
   const getPointerPos = (): { x: number; y: number } | null => {
     const stage = stageRef.current;
     if (!stage) return null;
@@ -180,27 +165,21 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     };
   };
 
-  // ============ Mouse handlers ============
-
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (tool === 'hand' || e.evt.button === 1 || e.evt.getModifierState?.(' ')) {
       setIsPanning(true);
       return;
     }
-
     if (tool === 'select') {
       if (e.target === e.target.getStage()) setSelected(null);
       return;
     }
-
     const pos = getPointerPos();
     if (!pos) return;
-
     if (tool === 'eraser') {
       setIsDrawing(true);
       return;
     }
-
     setIsDrawing(true);
 
     const id = `${userId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -427,14 +406,17 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     const isSelected = el.id === selectedId;
     const isHovered = hoveredId === el.id && tool === 'select' && !isDraft;
     const canInteract = tool === 'select' && el.createdBy === userId && !isDraft;
+
+    // Яркая подсветка
     const glowColor = isDraft
       ? '#2ecc71'
       : isSelected
-      ? '#3498db'
+      ? '#2563eb'
       : isHovered
-      ? '#74b9ff'
+      ? '#60a5fa'
       : undefined;
-    const glowBlur = isDraft ? 12 : isSelected ? 10 : isHovered ? 6 : 0;
+    const glowBlur = isDraft ? 16 : isSelected ? 14 : isHovered ? 8 : 0;
+    const glowOpacity = glowColor ? 1 : 0;
 
     return {
       key: el.id,
@@ -451,7 +433,7 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
       opacity: isDraft ? 0.9 : 1,
       shadowColor: glowColor,
       shadowBlur: glowBlur,
-      shadowOpacity: glowColor ? 0.6 : 0,
+      shadowOpacity: glowOpacity,
     };
   };
 
@@ -547,7 +529,16 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
   };
 
   return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', ...getBgStyle() }}>
+    <div
+      ref={containerRef}
+      style={{
+        width: '100%',
+        height: '100%',
+        position: 'relative',
+        overflow: 'hidden',
+        backgroundColor: background === 'dark-grid' ? '#333' : '#fafafa',
+      }}
+    >
       <Stage
         ref={stageRef}
         width={size.width}
@@ -569,7 +560,6 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
             : tool === 'eraser'
             ? 'cell'
             : 'crosshair',
-          background: 'transparent',
         }}
       >
         {/* Сетка */}

@@ -36,7 +36,7 @@ interface BoardEntry {
 
 const activeBoards = new Map<string, BoardEntry>();
 
-const SAVE_DEBOUNCE_MS = 500; // было 2000, уменьшили до 500 мс
+const SAVE_DEBOUNCE_MS = 500;
 
 async function loadElements(boardId: string): Promise<Map<string, BoardElement>> {
   const board = await prisma.board.findUnique({
@@ -94,7 +94,7 @@ function scheduleSave(boardId: string) {
         data: { elements: JSON.stringify(elementsArray) },
       });
       current.dirty = false;
-      logger.debug({ boardId, count: elementsArray.length }, 'Board saved');
+      logger.info({ boardId, count: elementsArray.length }, 'Board saved (debounced)');
     } catch (err) {
       logger.error({ err, boardId }, 'Failed to save board');
     } finally {
@@ -104,7 +104,6 @@ function scheduleSave(boardId: string) {
   }, SAVE_DEBOUNCE_MS);
 }
 
-// Принудительное сохранение без debounce
 export async function saveNow(boardId: string): Promise<void> {
   const entry = activeBoards.get(boardId);
   if (!entry) return;
@@ -119,7 +118,7 @@ export async function saveNow(boardId: string): Promise<void> {
       data: { elements: JSON.stringify(elementsArray) },
     });
     entry.dirty = false;
-    logger.debug({ boardId, count: elementsArray.length }, 'Board saved (forced)');
+    logger.info({ boardId, count: elementsArray.length }, 'Board saved (forced)');
   } catch (err) {
     logger.error({ err, boardId }, 'Failed to save board (forced)');
   }
@@ -150,11 +149,9 @@ export function applyOperation(
     case 'update': {
       const existing = entry.elements.get(op.element.id);
       if (!existing) return { ok: false, error: 'Element not found' };
-
       if (!isOwner && existing.createdBy !== userId) {
         return { ok: false, error: 'Cannot edit other users elements' };
       }
-
       entry.elements.set(op.element.id, {
         ...existing,
         ...op.element,
@@ -168,11 +165,9 @@ export function applyOperation(
     case 'remove': {
       const existing = entry.elements.get(op.elementId);
       if (!existing) return { ok: true };
-
       if (!isOwner && existing.createdBy !== userId) {
         return { ok: false, error: 'Cannot delete other users elements' };
       }
-
       entry.elements.delete(op.elementId);
       break;
     }
@@ -187,7 +182,14 @@ export function applyOperation(
   }
 
   entry.dirty = true;
-  scheduleSave(boardId);
+
+  // ВАЖНО: для картинок сохраняем сразу, без debounce.
+  // Иначе при быстром закрытии вкладки картинка теряется.
+  if (op.type === 'add' && op.element.type === 'image') {
+    void saveNow(boardId);
+  } else {
+    scheduleSave(boardId);
+  }
 
   return { ok: true };
 }
