@@ -79,7 +79,6 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
 
   const elements = Array.from(elementsMap.values()).sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
 
-  // Размер Stage по контейнеру
   useEffect(() => {
     const update = () => {
       if (containerRef.current) {
@@ -93,15 +92,6 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     if (containerRef.current) obs.observe(containerRef.current);
     return () => { window.removeEventListener('resize', update); obs.disconnect(); };
   }, []);
-
-  // ГЛАВНОЕ: применяем viewport напрямую к Stage через position/scale
-  useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-    stage.position({ x: viewport.x, y: viewport.y });
-    stage.scale({ x: viewport.scale, y: viewport.scale });
-    stage.batchDraw();
-  }, [viewport, size]);
 
   useEffect(() => {
     if (textInput && textInputRef.current) setTimeout(() => textInputRef.current?.focus(), 50);
@@ -130,11 +120,16 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     } else if (trRef.current) trRef.current.nodes([]);
   }, [selectedId, elements, tool]);
 
-  // Теперь Stage трансформирован, поэтому getRelativePointerPosition даёт точные координаты
+  // ПРАВИЛЬНАЯ ФОРМУЛА: pointer в системе Stage, viewport вычитаем вручную
   const getPointerPos = (): { x: number; y: number } | null => {
     const stage = stageRef.current;
     if (!stage) return null;
-    return stage.getRelativePointerPosition();
+    const pointer = stage.getPointerPosition();
+    if (!pointer) return null;
+    return {
+      x: (pointer.x - viewport.x) / viewport.scale,
+      y: (pointer.y - viewport.y) / viewport.scale,
+    };
   };
 
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -417,12 +412,16 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
         }}
       >
         <Layer listening={false}>
-          {renderGrid()}
+          <Group x={viewport.x} y={viewport.y} scaleX={viewport.scale} scaleY={viewport.scale}>
+            {renderGrid()}
+          </Group>
         </Layer>
 
         <Layer>
-          {elements.map((el) => renderElement(el))}
-          {draftElement && renderElement(draftElement, true)}
+          <Group x={viewport.x} y={viewport.y} scaleX={viewport.scale} scaleY={viewport.scale}>
+            {elements.map((el) => renderElement(el))}
+            {draftElement && renderElement(draftElement, true)}
+          </Group>
         </Layer>
 
         <Layer>
@@ -438,8 +437,8 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
 
         <Layer listening={false}>
           {Array.from(cursors.values()).map((c) => {
-            const sx = c.x;
-            const sy = c.y;
+            const sx = c.x * viewport.scale + viewport.x;
+            const sy = c.y * viewport.scale + viewport.y;
             return (
               <Group key={c.socketId} x={sx} y={sy}>
                 <Line points={[0, 0, 0, 16, 4, 12]} stroke={c.color} strokeWidth={2} fill={c.color} closed />
