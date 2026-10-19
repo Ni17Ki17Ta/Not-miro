@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
-import { Stage, Layer, Line, Rect, Ellipse, Text, Group, Image as KonvaImage } from 'react-konva';
+import { Stage, Layer, Line, Rect, Ellipse, Text, Group, Image as KonvaImage, Transformer } from 'react-konva';
 import type Konva from 'konva';
 import { useBoardStore } from '../store/board';
 import type { BoardElement, ElementType, Operation } from '../types';
@@ -23,7 +23,7 @@ function KonvaImageElement({ el, isSelected, isDraft, onClick }: { el: BoardElem
 
   if (!image) return null;
 
-  const glowColor = isDraft ? '#2ecc71' : isSelected ? '#007bff' : undefined;
+  const glowColor = isDraft ? '#2ecc71' : isSelected ? '#3498db' : undefined;
 
   return (
     <KonvaImage
@@ -38,7 +38,7 @@ function KonvaImageElement({ el, isSelected, isDraft, onClick }: { el: BoardElem
       opacity={isDraft ? 0.9 : 1}
       shadowColor={glowColor}
       shadowBlur={glowColor ? 10 : 0}
-      shadowOpacity={glowColor ? 0.8 : 0}
+      shadowOpacity={glowColor ? 0.6 : 0}
     />
   );
 }
@@ -67,12 +67,12 @@ function getWavyPoints(points: number[], amplitude = 3, period = 15): number[] {
 export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
+  const trRef = useRef<Konva.Transformer>(null);
 
   const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [isDrawing, setIsDrawing] = useState(false);
   const [draftElement, setDraftElement] = useState<BoardElement | null>(null);
   const [isPanning, setIsPanning] = useState(false);
-  const [viewport, setViewport] = useState({ x: 0, y: 0, scale: 1 });
 
   const [textInput, setTextInput] = useState<{ x: number; y: number; width: number; height: number; text: string } | null>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
@@ -88,20 +88,22 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
   const selectedId = useBoardStore((s) => s.selectedId);
   const setSelected = useBoardStore((s) => s.setSelected);
   const addElement = useBoardStore((s) => s.addElement);
+  const updateElement = useBoardStore((s) => s.updateElement);
   const removeElement = useBoardStore((s) => s.removeElement);
   const pushHistory = useBoardStore((s) => s.pushHistory);
   const cursors = useBoardStore((s) => s.cursors);
   const background = useBoardStore((s) => s.background);
+  const viewport = useBoardStore((s) => s.viewport);
+  const setViewport = useBoardStore((s) => s.setViewport);
 
-  // Сортируем элементы по z-index
   const elements = Array.from(elementsMap.values()).sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
 
   const getBgStyle = () => {
     if (background === 'plain') return { backgroundColor: '#fafafa' };
-    if (background === 'light-grid') return { backgroundColor: '#fafafa', backgroundImage: 'linear-gradient(90deg, #eee 1px, transparent 1px), linear-gradient(#eee 1px, transparent 1px)', backgroundSize: '20px 20px' };
-    if (background === 'dark-grid') return { backgroundColor: '#333', backgroundImage: 'linear-gradient(90deg, #444 1px, transparent 1px), linear-gradient(#444 1px, transparent 1px)', backgroundSize: '20px 20px' };
-    if (background === 'dots') return { backgroundColor: '#fafafa', backgroundImage: 'radial-gradient(#ccc 1px, transparent 1px)', backgroundSize: '20px 20px' };
-    if (background === 'lines') return { backgroundColor: '#fafafa', backgroundImage: 'linear-gradient(#eee 1px, transparent 1px)', backgroundSize: '20px 20px' };
+    if (background === 'light-grid') return { backgroundColor: '#fafafa' };
+    if (background === 'dark-grid') return { backgroundColor: '#333' };
+    if (background === 'dots') return { backgroundColor: '#fafafa' };
+    if (background === 'lines') return { backgroundColor: '#fafafa' };
     return {};
   };
 
@@ -133,6 +135,20 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     return () => window.removeEventListener('keydown', onKey);
   }, [selectedId, elementsMap, userId, removeElement, pushHistory, sendOperation, setSelected, textInput]);
 
+  useEffect(() => {
+    if (trRef.current && stageRef.current && selectedId && tool === 'select') {
+      const node = stageRef.current.findOne('#' + selectedId);
+      if (node) {
+        trRef.current.nodes([node]);
+        trRef.current.getLayer()?.batchDraw();
+      } else {
+        trRef.current.nodes([]);
+      }
+    } else if (trRef.current) {
+      trRef.current.nodes([]);
+    }
+  }, [selectedId, elements, tool]);
+
   const getPointerPos = (): { x: number; y: number } | null => {
     const stage = stageRef.current;
     if (!stage) return null;
@@ -142,7 +158,10 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
   };
 
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    if (e.evt.button === 1 || e.evt.getModifierState?.(' ')) { setIsPanning(true); return; }
+    if (tool === 'hand' || e.evt.button === 1 || e.evt.getModifierState?.(' ')) {
+      setIsPanning(true);
+      return;
+    }
     if (tool === 'select') {
       if (e.target === e.target.getStage()) setSelected(null);
       return;
@@ -179,7 +198,7 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     }
 
     if (isPanning && stage) {
-      setViewport((v) => ({ ...v, x: v.x + e.evt.movementX, y: v.y + e.evt.movementY }));
+      setViewport({ ...viewport, x: viewport.x + e.evt.movementX, y: viewport.y + e.evt.movementY });
       return;
     }
 
@@ -285,17 +304,50 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     if (tool === 'select') setSelected(el.id);
   };
 
+  const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>, el: BoardElement) => {
+    const node = e.target;
+    const newX = node.x();
+    const newY = node.y();
+    const updated = { ...el, x: newX, y: newY };
+    updateElement(updated);
+    pushHistory({ type: 'update', element: updated });
+    sendOperation({ type: 'update', element: updated });
+  };
+
+  const handleTransformEnd = (e: Konva.KonvaEventObject<Event>, el: BoardElement) => {
+    const node = e.target;
+    const scaleX = node.scaleX();
+    const scaleY = node.scaleY();
+    node.scaleX(1);
+    node.scaleY(1);
+
+    const updated = {
+      ...el,
+      x: node.x(),
+      y: node.y(),
+      width: Math.max(5, (el.width || 0) * scaleX),
+      height: Math.max(5, (el.height || 0) * scaleY),
+    };
+    updateElement(updated);
+    pushHistory({ type: 'update', element: updated });
+    sendOperation({ type: 'update', element: updated });
+  };
+
   const renderElement = (el: BoardElement, isDraft = false) => {
     const isSelected = el.id === selectedId;
-    const glowColor = isDraft ? '#2ecc71' : isSelected ? '#007bff' : undefined;
+    const glowColor = isDraft ? '#2ecc71' : isSelected ? '#3498db' : undefined;
     const glowBlur = isDraft ? 12 : isSelected ? 10 : 0;
+    const isDraggable = tool === 'select' && el.createdBy === userId;
 
     const commonProps = {
       key: el.id, id: el.id,
       onClick: () => handleElementClick(el),
       onTap: () => handleElementClick(el),
+      draggable: isDraggable,
+      onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => handleDragEnd(e, el),
+      onTransformEnd: (e: Konva.KonvaEventObject<Event>) => handleTransformEnd(e, el),
       opacity: isDraft ? 0.9 : 1,
-      shadowColor: glowColor, shadowBlur: glowBlur, shadowOpacity: glowColor ? 0.8 : 0,
+      shadowColor: glowColor, shadowBlur: glowBlur, shadowOpacity: glowColor ? 0.6 : 0,
     };
 
     const ls = el.lineStyle || 'solid';
@@ -345,13 +397,59 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
         onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}
         onTouchStart={handleMouseDown as any} onTouchMove={handleMouseMove as any} onTouchEnd={handleMouseUp}
         onWheel={handleWheel}
-        style={{ cursor: isPanning ? 'grabbing' : tool === 'select' ? 'default' : tool === 'eraser' ? 'cell' : 'crosshair', background: 'transparent' }}
+        style={{
+          cursor: isPanning ? 'grabbing'
+            : tool === 'hand' ? 'grab'
+            : tool === 'select' ? 'default'
+            : tool === 'eraser' ? 'cell'
+            : 'crosshair',
+          background: 'transparent',
+        }}
       >
+        <Layer>
+          <Group x={viewport.x} y={viewport.y} scaleX={viewport.scale} scaleY={viewport.scale}>
+            {background === 'light-grid' && Array.from({ length: 200 }).map((_, i) => (
+              <Line key={`v-${i}`} points={[i * 20, -10000, i * 20, 10000]} stroke="#eee" strokeWidth={0.5} listening={false} />
+            ))}
+            {background === 'light-grid' && Array.from({ length: 200 }).map((_, i) => (
+              <Line key={`h-${i}`} points={[-10000, i * 20, 10000, i * 20]} stroke="#eee" strokeWidth={0.5} listening={false} />
+            ))}
+            {background === 'dark-grid' && Array.from({ length: 200 }).map((_, i) => (
+              <Line key={`v-${i}`} points={[i * 20, -10000, i * 20, 10000]} stroke="#444" strokeWidth={0.5} listening={false} />
+            ))}
+            {background === 'dark-grid' && Array.from({ length: 200 }).map((_, i) => (
+              <Line key={`h-${i}`} points={[-10000, i * 20, 10000, i * 20]} stroke="#444" strokeWidth={0.5} listening={false} />
+            ))}
+            {background === 'dots' && Array.from({ length: 100 }).map((_, i) =>
+              Array.from({ length: 100 }).map((_, j) => (
+                <Rect key={`d-${i}-${j}`} x={i * 40} y={j * 40} width={2} height={2} fill="#ccc" listening={false} />
+              ))
+            )}
+            {background === 'lines' && Array.from({ length: 200 }).map((_, i) => (
+              <Line key={`h-${i}`} points={[-10000, i * 20, 10000, i * 20]} stroke="#eee" strokeWidth={0.5} listening={false} />
+            ))}
+          </Group>
+        </Layer>
+
         <Layer>
           <Group x={viewport.x} y={viewport.y} scaleX={viewport.scale} scaleY={viewport.scale}>
             {elements.map((el) => renderElement(el))}
             {draftElement && renderElement(draftElement, true)}
           </Group>
+        </Layer>
+
+        <Layer>
+          {selectedId && tool === 'select' && (
+            <Transformer
+              ref={trRef}
+              rotateEnabled={false}
+              enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right']}
+              boundBoxFunc={(oldBox, newBox) => {
+                if (newBox.width < 10 || newBox.height < 10) return oldBox;
+                return newBox;
+              }}
+            />
+          )}
         </Layer>
 
         <Layer listening={false}>

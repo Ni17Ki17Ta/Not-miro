@@ -6,6 +6,8 @@ type HistoryEntry = {
   element: BoardElement;
 };
 
+interface Viewport { x: number; y: number; scale: number; }
+
 interface BoardStore {
   elements: Map<string, BoardElement>;
   tool: Tool;
@@ -17,6 +19,8 @@ interface BoardStore {
   fontFamily: string;
   selectedId: string | null;
   background: BoardBackground;
+  viewport: Viewport;
+  setViewport: (v: Viewport) => void;
 
   participants: Participant[];
   cursors: Map<string, RemoteCursor>;
@@ -70,6 +74,8 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
   fontFamily: 'Arial',
   selectedId: null,
   background: 'light-grid',
+  viewport: { x: 0, y: 0, scale: 1 },
+  setViewport: (viewport) => set({ viewport }),
 
   participants: [],
   cursors: new Map(),
@@ -192,5 +198,6 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
   resetBoard: () => set({
     elements: new Map(), selectedId: null, cursors: new Map(),
     participants: [], history: [], future: [], isOwner: false,
+    viewport: { x: 0, y: 0, scale: 1 },
   }),
 }));

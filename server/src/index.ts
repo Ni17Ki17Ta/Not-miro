@@ -27,11 +27,10 @@ async function bootstrap() {
   });
 
   // --- Global middleware ---
-  app.use(helmet({
-    contentSecurityPolicy: false, // отключаем CSP для работы Vite в dev
-  }));
+  app.use(helmet({ contentSecurityPolicy: false }));
   app.use(cors({ origin: config.CLIENT_URL, credentials: true }));
-  app.use(express.json({ limit: '5mb' }));
+  // УВЕЛИЧЕНО до 25 МБ для картинок base64
+  app.use(express.json({ limit: '25mb' })); 
   app.use(cookieParser());
 
   // --- Routes ---
@@ -51,7 +50,6 @@ async function bootstrap() {
     const clientDist = path.resolve(__dirname, '../../client/dist');
     app.use(express.static(clientDist));
 
-    // SPA fallback: все не-API запросы отдают index.html
     app.get('*', (req, res, next) => {
       if (req.path.startsWith('/api')) return next();
       res.sendFile(path.join(clientDist, 'index.html'));

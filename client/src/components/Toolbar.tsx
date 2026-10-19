@@ -4,6 +4,7 @@ import type { Tool, LineStyle } from '../types';
 
 const TOOLS: { id: Tool; label: string; icon: string; key: string }[] = [
   { id: 'select', label: 'Выделить', icon: '↖', key: 'V' },
+  { id: 'hand', label: 'Рука (перемещение)', icon: '✋', key: 'H' },
   { id: 'pen', label: 'Карандаш', icon: '✏️', key: 'P' },
   { id: 'eraser', label: 'Ластик', icon: '🧽', key: 'E' },
   { id: 'rect', label: 'Прямоугольник', icon: '▭', key: 'R' },
@@ -31,9 +32,10 @@ interface ToolbarProps {
   canRedo: boolean;
   onOpenSettings: () => void;
   userId: string;
+  viewport: { x: number; y: number; scale: number };
 }
 
-export function Toolbar({ onUndo, onRedo, onClear, canUndo, canRedo, onOpenSettings, userId }: ToolbarProps) {
+export function Toolbar({ onUndo, onRedo, onClear, canUndo, canRedo, onOpenSettings, userId, viewport }: ToolbarProps) {
   const tool = useBoardStore((s) => s.tool);
   const setTool = useBoardStore((s) => s.setTool);
   const color = useBoardStore((s) => s.color);
@@ -67,7 +69,7 @@ export function Toolbar({ onUndo, onRedo, onClear, canUndo, canRedo, onOpenSetti
       const img = new window.Image();
       img.src = base64;
       img.onload = () => {
-        const maxW = 500;
+        const maxW = 300;
         let w = img.width;
         let h = img.height;
         if (w > maxW) {
@@ -75,17 +77,21 @@ export function Toolbar({ onUndo, onRedo, onClear, canUndo, canRedo, onOpenSetti
           w = maxW;
         }
 
+        // Центр текущего вида (учитывая viewport и zoom)
+        const centerX = (window.innerWidth / 2 - viewport.x) / viewport.scale;
+        const centerY = (window.innerHeight / 2 - viewport.y) / viewport.scale;
+
         const newEl = {
           id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           type: 'image' as const,
-          x: window.innerWidth / 2 - w / 2,
-          y: window.innerHeight / 2 - h / 2,
+          x: centerX - w / 2,
+          y: centerY - h / 2,
           width: w,
           height: h,
           imageUrl: base64,
           color: '#000',
           strokeWidth: 0,
-          zIndex: 0, // <-- ДОБАВЛЕНО: обязательное поле
+          zIndex: 0,
           createdBy: userId,
           version: 1,
           updatedAt: Date.now(),

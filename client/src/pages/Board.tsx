@@ -22,6 +22,7 @@ export default function Board() {
   const [error, setError] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const user = useAuthStore((s) => s.user);
+  const viewport = useBoardStore((s) => s.viewport);
 
   useSocket();
   const { sendOperation, sendCursor } = useBoardSync(board?.id || '', token);
@@ -110,6 +111,7 @@ export default function Board() {
         canRedo={future.length > 0}
         onOpenSettings={() => setShowSettings(true)}
         userId={user.id}
+        viewport={viewport}
       />
 
       {showSettings && <BoardSettings onClose={() => setShowSettings(false)} />}
