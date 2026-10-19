@@ -111,6 +111,7 @@ export default function Board() {
         canRedo={future.length > 0}
         onOpenSettings={() => setShowSettings(true)}
         userId={user.id}
+        boardId={board.id}  {/* <-- ДОБАВИТЬ ЭТУ СТРОКУ */}
         viewport={viewport}
       />
 

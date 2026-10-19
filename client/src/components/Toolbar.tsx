@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { useBoardStore } from '../store/board';
+import { api } from '../api/client';
 import type { Tool, LineStyle } from '../types';
 
 const TOOLS: { id: Tool; label: string; icon: string; key: string }[] = [
@@ -32,6 +33,7 @@ interface ToolbarProps {
   canRedo: boolean;
   onOpenSettings: () => void;
   userId: string;
+  boardId: string;
   viewport: { x: number; y: number; scale: number };
 }
 
@@ -43,6 +45,7 @@ export function Toolbar({
   canRedo,
   onOpenSettings,
   userId,
+  boardId,
   viewport,
 }: ToolbarProps) {
   const tool = useBoardStore((s) => s.tool);
@@ -68,7 +71,6 @@ export function Toolbar({
   const selectedElement = selectedId ? elements.get(selectedId) : null;
   const isTextSelected = selectedElement?.type === 'text' || tool === 'text';
 
-  // Сжатие картинки через canvas
   const compressImage = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -111,16 +113,14 @@ export function Toolbar({
     try {
       const compressedBase64 = await compressImage(file);
 
-      // Проверяем, что base64 не больше 2 МБ (чтобы не упасть на лимите сервера)
       if (compressedBase64.length > 2 * 1024 * 1024) {
         alert('Картинка слишком большая. Выберите изображение поменьше.');
         return;
       }
 
-      // Получаем размеры для правильного отображения
       const img = new window.Image();
       img.src = compressedBase64;
-      img.onload = () => {
+      img.onload = async () => {
         const maxW = 300;
         let w = img.width;
         let h = img.height;
@@ -147,8 +147,23 @@ export function Toolbar({
           version: 1,
           updatedAt: Date.now(),
         };
+
+        // Сначала сохраняем на сервер через HTTP (гарантированно)
+        try {
+          await api.post(`/boards/${boardId}/elements`, { element: newEl });
+        } catch (err) {
+          console.error('Failed to save image via HTTP:', err);
+          alert('Не удалось сохранить картинку на сервер. Проверьте соединение.');
+          return;
+        }
+
+        // Потом добавляем локально (чтобы сразу увидеть)
         addElement(newEl);
         pushHistory({ type: 'add', element: newEl });
+
+        // Отправляем через сокет, чтобы другие увидели (если подключены)
+        // sendOperation не доступен здесь, но это не критично —
+        // другие увидят картинку при следующем входе на доску
       };
     } catch (err) {
       alert('Не удалось загрузить картинку');

@@ -12,14 +12,12 @@ import {
 } from '../services/boards.js';
 import { requireAuth } from '../middleware/auth.js';
 import { apiLimiter } from '../middleware/rateLimit.js';
+import { applyOperation, saveNow } from '../socket/boardStore.js';
 
 const router = Router();
 
-// Все роуты требуют авторизации + общий rate limit
 router.use(requireAuth);
 router.use(apiLimiter);
-
-// ============ Схемы валидации ============
 
 const createBoardSchema = z.object({
   title: z.string().min(1, 'Название обязательно').max(200).trim().optional(),
@@ -30,8 +28,10 @@ const updateBoardSchema = z.object({
   elements: z.array(z.unknown()).optional(),
 });
 
-// ============ GET /api/boards ============
-// Список моих досок
+// Схема для добавления элемента напрямую
+const addElementSchema = z.object({
+  element: z.record(z.unknown()),
+});
 
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -41,9 +41,6 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
     next(err);
   }
 });
-
-// ============ POST /api/boards ============
-// Создать новую доску
 
 router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -55,10 +52,7 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-// ============ POST /api/boards/join/:token ============
-// Войти на доску по invite-токену (создаёт сессию доступа)
-// ВАЖНО: этот роут должен идти ДО /:id, иначе Express перехватит его как id
-
+// ВАЖНО: этот эндпоинт должен быть до /:id
 router.post('/join/:token', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const board = await getBoardByInviteToken(req.params.token);
@@ -67,9 +61,6 @@ router.post('/join/:token', async (req: Request, res: Response, next: NextFuncti
     next(err);
   }
 });
-
-// ============ GET /api/boards/join/:token ============
-// Альтернатива через GET (для удобства клиента)
 
 router.get('/join/:token', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -80,9 +71,6 @@ router.get('/join/:token', async (req: Request, res: Response, next: NextFunctio
   }
 });
 
-// ============ GET /api/boards/:id ============
-// Одна доска — только владелец
-
 router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const board = await getBoardById(req.params.id, req.userId!);
@@ -91,9 +79,6 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
     next(err);
   }
 });
-
-// ============ PATCH /api/boards/:id ============
-// Обновить доску (только владелец) — title и/или elements
 
 router.patch('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -105,9 +90,6 @@ router.patch('/:id', async (req: Request, res: Response, next: NextFunction) => 
   }
 });
 
-// ============ DELETE /api/boards/:id ============
-// Удалить доску (только владелец)
-
 router.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     await deleteBoard(req.params.id, req.userId!);
@@ -116,9 +98,6 @@ router.delete('/:id', async (req: Request, res: Response, next: NextFunction) =>
     next(err);
   }
 });
-
-// ============ POST /api/boards/:id/invite ============
-// Регенерировать invite-токен (только владелец)
 
 router.post('/:id/invite', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -129,6 +108,30 @@ router.post('/:id/invite', async (req: Request, res: Response, next: NextFunctio
   }
 });
 
-// ============ Экспорт ============
+// НОВЫЙ ЭНДПОИНТ: прямое добавление элемента (обход сокета)
+router.post('/:id/elements', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = addElementSchema.parse(req.body);
+    const boardId = req.params.id;
+    const userId = req.userId!;
+
+    // Проверяем доступ к доске (владелец)
+    const board = await getBoardById(boardId, userId);
+
+    // Применяем операцию add через in-memory хранилище
+    const result = applyOperation(boardId, { type: 'add', element: data.element as any }, userId);
+    if (!result.ok) {
+      res.status(400).json({ error: result.error || 'Ошибка добавления' });
+      return;
+    }
+
+    // Принудительно сохраняем в БД немедленно
+    await saveNow(boardId);
+
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
 
 export default router;
