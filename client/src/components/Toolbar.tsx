@@ -4,24 +4,17 @@ import type { Tool } from '../types';
 const TOOLS: { id: Tool; label: string; icon: string; key: string }[] = [
   { id: 'select', label: 'Выделить', icon: '↖', key: 'V' },
   { id: 'pen', label: 'Карандаш', icon: '✏️', key: 'P' },
+  { id: 'eraser', label: 'Ластик', icon: '🧽', key: 'E' },
   { id: 'rect', label: 'Прямоугольник', icon: '▭', key: 'R' },
   { id: 'ellipse', label: 'Эллипс', icon: '○', key: 'O' },
   { id: 'line', label: 'Линия', icon: '╱', key: 'L' },
   { id: 'text', label: 'Текст', icon: 'T', key: 'T' },
-  { id: 'sticky', label: 'Стикер', icon: '📝', key: 'N' },
 ];
 
-const COLORS = [
-  '#1a1a1a',
-  '#e74c3c',
-  '#3498db',
-  '#2ecc71',
-  '#f39c12',
-  '#9b59b6',
-  '#1abc9c',
-];
-
+const COLORS = ['#1a1a1a', '#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c'];
 const STROKE_WIDTHS = [1, 2, 4, 8];
+const FONTS = ['Arial', 'Times New Roman', 'Courier New', 'Georgia', 'Verdana'];
+const FONT_SIZES = [12, 16, 20, 24, 32, 48];
 
 interface ToolbarProps {
   onUndo: () => void;
@@ -38,7 +31,16 @@ export function Toolbar({ onUndo, onRedo, onClear, canUndo, canRedo }: ToolbarPr
   const setColor = useBoardStore((s) => s.setColor);
   const strokeWidth = useBoardStore((s) => s.strokeWidth);
   const setStrokeWidth = useBoardStore((s) => s.setStrokeWidth);
+  const fontSize = useBoardStore((s) => s.fontSize);
+  const setFontSize = useBoardStore((s) => s.setFontSize);
+  const fontFamily = useBoardStore((s) => s.fontFamily);
+  const setFontFamily = useBoardStore((s) => s.setFontFamily);
   const isOwner = useBoardStore((s) => s.isOwner);
+  const selectedId = useBoardStore((s) => s.selectedId);
+  const elements = useBoardStore((s) => s.elements);
+
+  const selectedElement = selectedId ? elements.get(selectedId) : null;
+  const isTextSelected = selectedElement?.type === 'text' || tool === 'text';
 
   const btnStyle = (active: boolean): React.CSSProperties => ({
     width: 40,
@@ -72,7 +74,6 @@ export function Toolbar({ onUndo, onRedo, onClear, canUndo, canRedo }: ToolbarPr
         maxWidth: 'calc(100vw - 40px)',
       }}
     >
-      {/* Инструменты */}
       {TOOLS.map((t) => (
         <button
           key={t.id}
@@ -86,7 +87,6 @@ export function Toolbar({ onUndo, onRedo, onClear, canUndo, canRedo }: ToolbarPr
 
       <div style={{ width: 1, height: 32, background: '#ddd', margin: '0 6px' }} />
 
-      {/* Цвета */}
       {COLORS.map((c) => (
         <button
           key={c}
@@ -106,7 +106,6 @@ export function Toolbar({ onUndo, onRedo, onClear, canUndo, canRedo }: ToolbarPr
 
       <div style={{ width: 1, height: 32, background: '#ddd', margin: '0 6px' }} />
 
-      {/* Толщины */}
       {STROKE_WIDTHS.map((w) => (
         <button
           key={w}
@@ -135,9 +134,36 @@ export function Toolbar({ onUndo, onRedo, onClear, canUndo, canRedo }: ToolbarPr
         </button>
       ))}
 
+      {isTextSelected && (
+        <>
+          <div style={{ width: 1, height: 32, background: '#ddd', margin: '0 6px' }} />
+          <select
+            value={fontFamily}
+            onChange={(e) => setFontFamily(e.target.value)}
+            style={{ padding: 6, borderRadius: 6, border: '1px solid #ddd' }}
+          >
+            {FONTS.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+          <select
+            value={fontSize}
+            onChange={(e) => setFontSize(Number(e.target.value))}
+            style={{ padding: 6, borderRadius: 6, border: '1px solid #ddd' }}
+          >
+            {FONT_SIZES.map((s) => (
+              <option key={s} value={s}>
+                {s}px
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+
       <div style={{ width: 1, height: 32, background: '#ddd', margin: '0 6px' }} />
 
-      {/* Действия */}
       <button
         onClick={onUndo}
         disabled={!canUndo}
@@ -166,7 +192,7 @@ export function Toolbar({ onUndo, onRedo, onClear, canUndo, canRedo }: ToolbarPr
             fontSize: 13,
             fontWeight: 500,
           }}
-          title="Очистить доску (только владелец)"
+          title="Очистить доску"
         >
           Очистить
         </button>

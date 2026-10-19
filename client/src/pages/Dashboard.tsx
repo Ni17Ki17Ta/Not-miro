@@ -39,8 +39,6 @@ export default function Dashboard() {
     void loadBoards();
   }, []);
 
-  // ============ Создание ============
-
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
@@ -57,19 +55,14 @@ export default function Dashboard() {
     }
   };
 
-  // ============ Копирование invite ============
-
   const handleInvite = async (board: BoardListItem) => {
     try {
       await navigator.clipboard.writeText(buildInviteUrl(board.inviteToken));
       toast.success('Ссылка-приглашение скопирована в буфер');
     } catch {
-      // Fallback: показать prompt с URL
       window.prompt('Скопируйте ссылку:', buildInviteUrl(board.inviteToken));
     }
   };
-
-  // ============ Регенерация invite ============
 
   const handleRegenerate = async (board: BoardListItem) => {
     if (!window.confirm('Старая ссылка перестанет работать. Продолжить?')) return;
@@ -89,8 +82,6 @@ export default function Dashboard() {
     }
   };
 
-  // ============ Удаление ============
-
   const handleDelete = async (board: BoardListItem) => {
     if (!window.confirm(`Удалить доску «${board.title}»? Это действие необратимо.`)) {
       return;
@@ -107,19 +98,15 @@ export default function Dashboard() {
     }
   };
 
-  // ============ Выход ============
-
   const handleLogout = async () => {
     try {
       await logout();
     } catch {
-      // Игнорируем — важно очистить клиент в любом случае
+      // Игнорируем
     }
     clearAuth();
     navigate('/login', { replace: true });
   };
-
-  // ============ Render ============
 
   return (
     <div className="dashboard">
@@ -157,8 +144,38 @@ export default function Dashboard() {
       ) : (
         <div className="boards-grid">
           {boards.map((board) => (
-            <div key={board.id} className="board-card">
-              <h3 title={board.title}>{board.title}</h3>
+            <div key={board.id} className="board-card" style={{ position: 'relative' }}>
+              {/* Красный крестик удаления в правом верхнем углу */}
+              <button
+                onClick={() => handleDelete(board)}
+                disabled={busyId === board.id}
+                title="Удалить доску"
+                style={{
+                  position: 'absolute',
+                  top: 8,
+                  right: 8,
+                  width: 24,
+                  height: 24,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#e74c3c',
+                  fontSize: 20,
+                  lineHeight: 1,
+                  cursor: 'pointer',
+                  padding: 0,
+                  opacity: busyId === board.id ? 0.4 : 1,
+                  transition: 'color 0.15s, transform 0.1s',
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.2)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)'; }}
+              >
+                ×
+              </button>
+
+              <h3 title={board.title} style={{ paddingRight: 24 }}>{board.title}</h3>
               <div className="meta">
                 Обновлено: {new Date(board.updatedAt).toLocaleDateString('ru-RU')}
               </div>
@@ -180,13 +197,6 @@ export default function Dashboard() {
                   title="Сгенерировать новую ссылку (старая станет невалидной)"
                 >
                   ↻
-                </button>
-                <button
-                  onClick={() => handleDelete(board)}
-                  className="btn-danger"
-                  disabled={busyId === board.id}
-                >
-                  Удалить
                 </button>
               </div>
             </div>

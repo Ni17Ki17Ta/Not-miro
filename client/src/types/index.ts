@@ -1,13 +1,9 @@
-// ============ Пользователь ============
-
 export interface User {
   id: string;
   email: string;
   name: string;
   createdAt?: string;
 }
-
-// ============ Доска ============
 
 export interface Board {
   id: string;
@@ -27,9 +23,9 @@ export interface BoardListItem {
   updatedAt: string;
 }
 
-// ============ Элементы холста ============
+export type ElementType = 'pen' | 'rect' | 'ellipse' | 'line' | 'text';
 
-export type ElementType = 'pen' | 'rect' | 'ellipse' | 'line' | 'arrow' | 'text' | 'sticky';
+export type Tool = 'select' | 'pen' | 'eraser' | 'rect' | 'ellipse' | 'line' | 'text';
 
 export interface BoardElement {
   id: string;
@@ -41,6 +37,8 @@ export interface BoardElement {
   height?: number;
   radius?: number;
   text?: string;
+  fontSize?: number;
+  fontFamily?: string;
   color: string;
   strokeWidth: number;
   createdBy: string;
@@ -48,27 +46,17 @@ export interface BoardElement {
   updatedAt: number;
 }
 
-// ============ Операции синхронизации ============
-
 export type Operation =
   | { type: 'add'; element: BoardElement }
   | { type: 'update'; element: BoardElement }
   | { type: 'remove'; elementId: string; createdBy: string }
   | { type: 'clear'; byUserId: string };
 
-// ============ Инструменты ============
-
-export type Tool = 'select' | 'pen' | 'rect' | 'ellipse' | 'line' | 'arrow' | 'text' | 'sticky';
-
-// ============ Участник в комнате ============
-
 export interface Participant {
   socketId: string;
   userName: string;
   color: string;
 }
-
-// ============ Курсор ============
 
 export interface RemoteCursor {
   socketId: string;
@@ -78,11 +66,7 @@ export interface RemoteCursor {
   y: number;
 }
 
-// ============ Состояние соединения ============
-
 export type ConnectionState = 'connected' | 'disconnected' | 'connecting' | 'reconnecting';
-
-// ============ Ответы API ============
 
 export interface AuthResponse {
   user: User;
@@ -120,8 +104,6 @@ export interface InviteResponse {
   inviteToken: string;
   inviteExpiresAt: string;
 }
-
-// ============ Toast ============
 
 export type ToastType = 'info' | 'success' | 'error';
 

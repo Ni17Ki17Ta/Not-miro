@@ -9,41 +9,57 @@ import { Toasts } from './components/Toasts';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.accessToken);
+  const bootChecked = useAuthStore((s) => s.bootChecked);
+  
+  // Пока проверяем сессию — показываем загрузку, чтобы не мигать логином
+  if (!bootChecked) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        fontSize: 16,
+        color: '#666',
+      }}>
+        Загрузка...
+      </div>
+    );
+  }
+  
   return token ? <>{children}</> : <Navigate to="/login" replace />;
 }
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.accessToken);
+  const bootChecked = useAuthStore((s) => s.bootChecked);
+  
+  if (!bootChecked) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        fontSize: 16,
+        color: '#666',
+      }}>
+        Загрузка...
+      </div>
+    );
+  }
+  
   return token ? <Navigate to="/" replace /> : <>{children}</>;
 }
 
 export default function App() {
-  const [bootChecked, setBootChecked] = useState(false);
   const tryRestore = useAuthStore((s) => s.tryRestore);
 
   useEffect(() => {
     // При первом запуске пробуем восстановить сессию через refresh-cookie.
     // Если cookie валидная — пользователь окажется залогинен без ввода пароля.
-    void tryRestore().finally(() => setBootChecked(true));
+    void tryRestore();
   }, [tryRestore]);
-
-  // Пока проверяем сессию — показываем экран загрузки, чтобы не мигать логином
-  if (!bootChecked) {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: '100vh',
-          fontSize: 16,
-          color: '#666',
-        }}
-      >
-        Загрузка...
-      </div>
-    );
-  }
 
   return (
     <>
