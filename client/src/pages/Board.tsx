@@ -23,6 +23,7 @@ export default function Board() {
   const [showSettings, setShowSettings] = useState(false);
   const user = useAuthStore((s) => s.user);
   const viewport = useBoardStore((s) => s.viewport);
+  const setViewport = useBoardStore((s) => s.setViewport);
 
   useSocket();
   const { sendOperation, sendCursor } = useBoardSync(board?.id || '', token);
@@ -36,13 +37,13 @@ export default function Board() {
   const isOwner = useBoardStore((s) => s.isOwner);
 
   useEffect(() => {
-    return () => {
-      resetBoard();
-    };
+    return () => { resetBoard(); };
   }, [resetBoard]);
 
   useEffect(() => {
     resetBoard();
+    // Явно сбрасываем viewport при входе на доску
+    setViewport({ x: 0, y: 0, scale: 1 });
     setBoard(null);
     setError('');
 
@@ -55,7 +56,7 @@ export default function Board() {
       }
     };
     void load();
-  }, [id, token]);
+  }, [id, token, resetBoard, setViewport]);
 
   const handleUndo = () => {
     const entry = undo();
@@ -91,9 +92,7 @@ export default function Board() {
       <div style={{ padding: 40, textAlign: 'center' }}>
         <h2 style={{ color: '#c00', marginBottom: 16 }}>Ошибка</h2>
         <p style={{ marginBottom: 16 }}>{error}</p>
-        <Link to="/" className="btn-secondary">
-          ← Вернуться к доскам
-        </Link>
+        <Link to="/" className="btn-secondary">← Вернуться к доскам</Link>
       </div>
     );
   }
@@ -106,22 +105,10 @@ export default function Board() {
     <div className="board-container">
       <div className="board-topbar">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Link to="/" style={{ fontSize: 13, color: '#007bff', textDecoration: 'none' }}>
-            ← Мои доски
-          </Link>
+          <Link to="/" style={{ fontSize: 13, color: '#007bff', textDecoration: 'none' }}>← Мои доски</Link>
           <span className="title">{board.title}</span>
           {!isOwner && (
-            <span
-              style={{
-                fontSize: 11,
-                padding: '2px 8px',
-                background: '#fff3cd',
-                color: '#856404',
-                borderRadius: 10,
-              }}
-            >
-              Гость
-            </span>
+            <span style={{ fontSize: 11, padding: '2px 8px', background: '#fff3cd', color: '#856404', borderRadius: 10 }}>Гость</span>
           )}
         </div>
         <ConnectionIndicator />

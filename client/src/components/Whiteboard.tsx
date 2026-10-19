@@ -79,6 +79,7 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
 
   const elements = Array.from(elementsMap.values()).sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
 
+  // Размер Stage по контейнеру
   useEffect(() => {
     const update = () => {
       if (containerRef.current) {
@@ -92,6 +93,15 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     if (containerRef.current) obs.observe(containerRef.current);
     return () => { window.removeEventListener('resize', update); obs.disconnect(); };
   }, []);
+
+  // ГЛАВНОЕ: применяем viewport напрямую к Stage через position/scale
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    stage.position({ x: viewport.x, y: viewport.y });
+    stage.scale({ x: viewport.scale, y: viewport.scale });
+    stage.batchDraw();
+  }, [viewport, size]);
 
   useEffect(() => {
     if (textInput && textInputRef.current) setTimeout(() => textInputRef.current?.focus(), 50);
@@ -120,22 +130,11 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     } else if (trRef.current) trRef.current.nodes([]);
   }, [selectedId, elements, tool]);
 
-  // ===== КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ =====
-  // Используем getRelativePointerPosition, который сам учитывает все трансформации.
-  // Но так как у нас viewport применяется внутри Group, нужно передать координаты
-  // относительно этой Group. В Konva это делается через stage.getPointerPosition() +
-  // stage.getAbsoluteTransform().copy().invert().point(pos).
+  // Теперь Stage трансформирован, поэтому getRelativePointerPosition даёт точные координаты
   const getPointerPos = (): { x: number; y: number } | null => {
     const stage = stageRef.current;
     if (!stage) return null;
-    const pointer = stage.getPointerPosition();
-    if (!pointer) return null;
-    // invert() даёт координаты в исходной системе (до трансформации Group)
-    // Но у нас Group с x/y/scale, поэтому вычитаем viewport вручную
-    return {
-      x: (pointer.x - viewport.x) / viewport.scale,
-      y: (pointer.y - viewport.y) / viewport.scale,
-    };
+    return stage.getRelativePointerPosition();
   };
 
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -161,13 +160,8 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
   };
 
   const handleMouseMove = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    const stage = stageRef.current;
-    if (stage) {
-      const pointer = stage.getPointerPosition();
-      if (pointer) {
-        sendCursor((pointer.x - viewport.x) / viewport.scale, (pointer.y - viewport.y) / viewport.scale);
-      }
-    }
+    const pos = getPointerPos();
+    if (pos) sendCursor(pos.x, pos.y);
 
     if (isPanning) {
       setViewport({ ...viewport, x: viewport.x + e.evt.movementX, y: viewport.y + e.evt.movementY });
@@ -177,6 +171,7 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     if (!isDrawing) return;
 
     if (tool === 'eraser') {
+      const stage = stageRef.current;
       if (stage) {
         const pointer = stage.getPointerPosition();
         if (pointer) {
@@ -195,9 +190,7 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
       return;
     }
 
-    if (!draftElement) return;
-    const pos = getPointerPos();
-    if (!pos) return;
+    if (!draftElement || !pos) return;
 
     const updated = { ...draftElement };
     if (tool === 'pen') updated.points = [...(draftElement.points || []), pos.x, pos.y];
@@ -424,16 +417,12 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
         }}
       >
         <Layer listening={false}>
-          <Group x={viewport.x} y={viewport.y} scaleX={viewport.scale} scaleY={viewport.scale}>
-            {renderGrid()}
-          </Group>
+          {renderGrid()}
         </Layer>
 
         <Layer>
-          <Group x={viewport.x} y={viewport.y} scaleX={viewport.scale} scaleY={viewport.scale}>
-            {elements.map((el) => renderElement(el))}
-            {draftElement && renderElement(draftElement, true)}
-          </Group>
+          {elements.map((el) => renderElement(el))}
+          {draftElement && renderElement(draftElement, true)}
         </Layer>
 
         <Layer>
@@ -449,8 +438,8 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
 
         <Layer listening={false}>
           {Array.from(cursors.values()).map((c) => {
-            const sx = c.x * viewport.scale + viewport.x;
-            const sy = c.y * viewport.scale + viewport.y;
+            const sx = c.x;
+            const sy = c.y;
             return (
               <Group key={c.socketId} x={sx} y={sy}>
                 <Line points={[0, 0, 0, 16, 4, 12]} stroke={c.color} strokeWidth={2} fill={c.color} closed />
