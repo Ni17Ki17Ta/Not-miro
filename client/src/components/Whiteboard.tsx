@@ -120,36 +120,28 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     } else if (trRef.current) trRef.current.nodes([]);
   }, [selectedId, elements, tool]);
 
-  // ============ ТОЧНЫЕ КООРДИНАТЫ ЧЕРЕЗ КОНТЕЙНЕР ============
-  const getPointerPos = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>): { x: number; y: number } | null => {
-    const container = containerRef.current;
-    if (!container) return null;
-    const rect = container.getBoundingClientRect();
-
-    let clientX: number, clientY: number;
-    if ('touches' in e.evt && e.evt.touches.length > 0) {
-      clientX = e.evt.touches[0].clientX;
-      clientY = e.evt.touches[0].clientY;
-    } else if ('clientX' in e.evt) {
-      clientX = e.evt.clientX;
-      clientY = e.evt.clientY;
-    } else {
-      return null;
-    }
-
-    const localX = clientX - rect.left;
-    const localY = clientY - rect.top;
-
+  // ===== КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ =====
+  // Используем getRelativePointerPosition, который сам учитывает все трансформации.
+  // Но так как у нас viewport применяется внутри Group, нужно передать координаты
+  // относительно этой Group. В Konva это делается через stage.getPointerPosition() +
+  // stage.getAbsoluteTransform().copy().invert().point(pos).
+  const getPointerPos = (): { x: number; y: number } | null => {
+    const stage = stageRef.current;
+    if (!stage) return null;
+    const pointer = stage.getPointerPosition();
+    if (!pointer) return null;
+    // invert() даёт координаты в исходной системе (до трансформации Group)
+    // Но у нас Group с x/y/scale, поэтому вычитаем viewport вручную
     return {
-      x: (localX - viewport.x) / viewport.scale,
-      y: (localY - viewport.y) / viewport.scale,
+      x: (pointer.x - viewport.x) / viewport.scale,
+      y: (pointer.y - viewport.y) / viewport.scale,
     };
   };
 
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (tool === 'hand' || e.evt.button === 1 || e.evt.getModifierState?.(' ')) { setIsPanning(true); return; }
     if (tool === 'select') { if (e.target === e.target.getStage()) setSelected(null); return; }
-    const pos = getPointerPos(e);
+    const pos = getPointerPos();
     if (!pos) return;
     if (tool === 'eraser') { setIsDrawing(true); return; }
     setIsDrawing(true);
@@ -169,8 +161,13 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
   };
 
   const handleMouseMove = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    const pos = getPointerPos(e);
-    if (pos) sendCursor(pos.x, pos.y);
+    const stage = stageRef.current;
+    if (stage) {
+      const pointer = stage.getPointerPosition();
+      if (pointer) {
+        sendCursor((pointer.x - viewport.x) / viewport.scale, (pointer.y - viewport.y) / viewport.scale);
+      }
+    }
 
     if (isPanning) {
       setViewport({ ...viewport, x: viewport.x + e.evt.movementX, y: viewport.y + e.evt.movementY });
@@ -180,7 +177,6 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     if (!isDrawing) return;
 
     if (tool === 'eraser') {
-      const stage = stageRef.current;
       if (stage) {
         const pointer = stage.getPointerPosition();
         if (pointer) {
@@ -199,7 +195,9 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
       return;
     }
 
-    if (!draftElement || !pos) return;
+    if (!draftElement) return;
+    const pos = getPointerPos();
+    if (!pos) return;
 
     const updated = { ...draftElement };
     if (tool === 'pen') updated.points = [...(draftElement.points || []), pos.x, pos.y];
@@ -238,23 +236,18 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
 
   const handleWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
-    const container = containerRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    const pointerX = e.evt.clientX - rect.left;
-    const pointerY = e.evt.clientY - rect.top;
-
+    const stage = stageRef.current;
+    if (!stage) return;
+    const pointer = stage.getPointerPosition();
+    if (!pointer) return;
     const oldScale = viewport.scale;
     const newScale = e.evt.deltaY < 0 ? oldScale * 1.1 : oldScale / 1.1;
     const clamped = Math.max(0.2, Math.min(4, newScale));
-    const mousePointTo = {
-      x: (pointerX - viewport.x) / oldScale,
-      y: (pointerY - viewport.y) / oldScale,
-    };
+    const mousePointTo = { x: (pointer.x - viewport.x) / oldScale, y: (pointer.y - viewport.y) / oldScale };
     setViewport({
       scale: clamped,
-      x: pointerX - mousePointTo.x * clamped,
-      y: pointerY - mousePointTo.y * clamped,
+      x: pointer.x - mousePointTo.x * clamped,
+      y: pointer.y - mousePointTo.y * clamped,
     });
   };
 
