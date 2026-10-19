@@ -6,10 +6,13 @@ import { useAuthStore } from '../store/auth';
 import { useBoardStore } from '../store/board';
 import { useSocket } from '../hooks/useSocket';
 import { useBoardSync } from '../hooks/useBoardSync';
+import { useHotkeys } from '../hooks/useHotkeys';
 import { Whiteboard } from '../components/Whiteboard';
 import { Toolbar } from '../components/Toolbar';
 import { ParticipantsPanel } from '../components/ParticipantsPanel';
 import { ConnectionIndicator } from '../components/ConnectionIndicator';
+import { BoardSettings } from '../components/BoardSettings';
+import { PropertiesPanel } from '../components/PropertiesPanel';
 import { toast } from '../components/Toasts';
 import type { Board as BoardType } from '../types';
 
@@ -17,18 +20,12 @@ export default function Board() {
   const { id, token } = useParams<{ id?: string; token?: string }>();
   const [board, setBoard] = useState<BoardType | null>(null);
   const [error, setError] = useState('');
+  const [showSettings, setShowSettings] = useState(false);
   const user = useAuthStore((s) => s.user);
 
-  // Хуки для сокетов (вызываются ВСЕГДА, чтобы соблюсти правила хуков)
   useSocket();
+  const { sendOperation, sendCursor } = useBoardSync(board?.id || '', token);
 
-  // Синхронизация подключается только когда знаем boardId
-  const { sendOperation, sendCursor } = useBoardSync(
-    board?.id || '',
-    token,
-  );
-
-  // Zustand история
   const history = useBoardStore((s) => s.history);
   const future = useBoardStore((s) => s.future);
   const undo = useBoardStore((s) => s.undo);
@@ -37,54 +34,38 @@ export default function Board() {
   const resetBoard = useBoardStore((s) => s.resetBoard);
   const isOwner = useBoardStore((s) => s.isOwner);
 
-  // Очистка стора при уходе с доски (чтобы не мигали старые данные)
   useEffect(() => {
-    return () => {
-      resetBoard();
-    };
+    return () => { resetBoard(); };
   }, [resetBoard]);
 
-  // Загрузка доски
   useEffect(() => {
-    // При смене доски сбрасываем старое состояние
     resetBoard();
     setBoard(null);
     setError('');
 
     const load = async () => {
       try {
-        const b = token
-          ? await getBoardByInvite(token)
-          : await getBoard(id!);
+        const b = token ? await getBoardByInvite(token) : await getBoard(id!);
         setBoard(b);
       } catch (err) {
         setError(getErrorMessage(err));
       }
     };
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, token]);
-
-  // ============ Undo/Redo с синхронизацией ============
 
   const handleUndo = () => {
     const entry = undo();
     if (!entry) return;
-    if (entry.type === 'add') {
-      sendOperation({ type: 'remove', elementId: entry.element.id, createdBy: user!.id });
-    } else if (entry.type === 'remove') {
-      sendOperation({ type: 'add', element: entry.element });
-    }
+    if (entry.type === 'add') sendOperation({ type: 'remove', elementId: entry.element.id, createdBy: user!.id });
+    else if (entry.type === 'remove') sendOperation({ type: 'add', element: entry.element });
   };
 
   const handleRedo = () => {
     const entry = redo();
     if (!entry) return;
-    if (entry.type === 'add') {
-      sendOperation({ type: 'add', element: entry.element });
-    } else if (entry.type === 'remove') {
-      sendOperation({ type: 'remove', elementId: entry.element.id, createdBy: user!.id });
-    }
+    if (entry.type === 'add') sendOperation({ type: 'add', element: entry.element });
+    else if (entry.type === 'remove') sendOperation({ type: 'remove', elementId: entry.element.id, createdBy: user!.id });
   };
 
   const handleClear = () => {
@@ -94,7 +75,7 @@ export default function Board() {
     toast.info('Доска очищена');
   };
 
-  // ============ Рендер состояний ============
+  useHotkeys(handleUndo, handleRedo);
 
   if (error) {
     return (
@@ -107,70 +88,39 @@ export default function Board() {
   }
 
   if (!board || !user) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center', color: '#888' }}>
-        Загрузка доски...
-      </div>
-    );
+    return <div style={{ padding: 40, textAlign: 'center', color: '#888' }}>Загрузка доски...</div>;
   }
 
   return (
     <div className="board-container">
-      {/* Топбар */}
       <div className="board-topbar">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Link
-            to="/"
-            style={{ fontSize: 13, color: '#007bff', textDecoration: 'none' }}
-          >
-            ← Мои доски
-          </Link>
+          <Link to="/" style={{ fontSize: 13, color: '#007bff', textDecoration: 'none' }}>← Мои доски</Link>
           <span className="title">{board.title}</span>
-          {!isOwner && (
-            <span
-              style={{
-                fontSize: 11,
-                padding: '2px 8px',
-                background: '#fff3cd',
-                color: '#856404',
-                borderRadius: 10,
-              }}
-            >
-              Гость
-            </span>
-          )}
+          {!isOwner && <span style={{ fontSize: 11, padding: '2px 8px', background: '#fff3cd', color: '#856404', borderRadius: 10 }}>Гость</span>}
         </div>
         <ConnectionIndicator />
       </div>
 
-      {/* Панель инструментов */}
       <Toolbar
         onUndo={handleUndo}
         onRedo={handleRedo}
         onClear={handleClear}
         canUndo={history.length > 0}
         canRedo={future.length > 0}
+        onOpenSettings={() => setShowSettings(true)}
+        userId={user.id}
       />
 
-      {/* Участники */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 70,
-          left: 20,
-          zIndex: 10,
-        }}
-      >
+      {showSettings && <BoardSettings onClose={() => setShowSettings(false)} />}
+
+      <div style={{ position: 'absolute', top: 70, left: 20, zIndex: 10 }}>
         <ParticipantsPanel />
       </div>
 
-      {/* Холст */}
-      <Whiteboard
-        sendOperation={sendOperation}
-        sendCursor={sendCursor}
-        userId={user.id}
-        userName={user.name}
-      />
+      <PropertiesPanel sendOperation={sendOperation} />
+
+      <Whiteboard sendOperation={sendOperation} sendCursor={sendCursor} userId={user.id} userName={user.name} />
     </div>
   );
 }

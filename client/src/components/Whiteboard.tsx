@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
-import { Stage, Layer, Line, Rect, Ellipse, Text, Group } from 'react-konva';
+import { Stage, Layer, Line, Rect, Ellipse, Text, Group, Image as KonvaImage } from 'react-konva';
 import type Konva from 'konva';
 import { useBoardStore } from '../store/board';
 import type { BoardElement, ElementType, Operation } from '../types';
@@ -9,6 +9,59 @@ interface WhiteboardProps {
   sendCursor: (x: number, y: number) => void;
   userId: string;
   userName: string;
+}
+
+function KonvaImageElement({ el, isSelected, isDraft, onClick }: { el: BoardElement, isSelected: boolean, isDraft: boolean, onClick: () => void }) {
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    if (!el.imageUrl) return;
+    const img = new window.Image();
+    img.src = el.imageUrl;
+    img.onload = () => setImage(img);
+  }, [el.imageUrl]);
+
+  if (!image) return null;
+
+  const glowColor = isDraft ? '#2ecc71' : isSelected ? '#007bff' : undefined;
+
+  return (
+    <KonvaImage
+      id={el.id}
+      image={image}
+      x={el.x}
+      y={el.y}
+      width={el.width}
+      height={el.height}
+      onClick={onClick}
+      onTap={onClick}
+      opacity={isDraft ? 0.9 : 1}
+      shadowColor={glowColor}
+      shadowBlur={glowColor ? 10 : 0}
+      shadowOpacity={glowColor ? 0.8 : 0}
+    />
+  );
+}
+
+function getWavyPoints(points: number[], amplitude = 3, period = 15): number[] {
+  if (points.length < 4) return points;
+  const wavy: number[] = [];
+  for (let i = 0; i < points.length; i += 2) {
+    const x = points[i];
+    const y = points[i + 1];
+    if (i < 2) { wavy.push(x, y); continue; }
+    const prevX = points[i - 2];
+    const prevY = points[i - 1];
+    const dx = x - prevX;
+    const dy = y - prevY;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len === 0) continue;
+    const nx = -dy / len;
+    const ny = dx / len;
+    const offset = Math.sin(i / period) * amplitude;
+    wavy.push(x + nx * offset, y + ny * offset);
+  }
+  return wavy;
 }
 
 export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProps) {
@@ -21,19 +74,15 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
   const [isPanning, setIsPanning] = useState(false);
   const [viewport, setViewport] = useState({ x: 0, y: 0, scale: 1 });
 
-  const [textInput, setTextInput] = useState<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    text: string;
-  } | null>(null);
+  const [textInput, setTextInput] = useState<{ x: number; y: number; width: number; height: number; text: string } | null>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
 
   const elementsMap = useBoardStore((s) => s.elements);
   const tool = useBoardStore((s) => s.tool);
   const color = useBoardStore((s) => s.color);
+  const fillColor = useBoardStore((s) => s.fillColor);
   const strokeWidth = useBoardStore((s) => s.strokeWidth);
+  const lineStyle = useBoardStore((s) => s.lineStyle);
   const fontSize = useBoardStore((s) => s.fontSize);
   const fontFamily = useBoardStore((s) => s.fontFamily);
   const selectedId = useBoardStore((s) => s.selectedId);
@@ -42,8 +91,19 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
   const removeElement = useBoardStore((s) => s.removeElement);
   const pushHistory = useBoardStore((s) => s.pushHistory);
   const cursors = useBoardStore((s) => s.cursors);
+  const background = useBoardStore((s) => s.background);
 
-  const elements = Array.from(elementsMap.values());
+  // Сортируем элементы по z-index
+  const elements = Array.from(elementsMap.values()).sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
+
+  const getBgStyle = () => {
+    if (background === 'plain') return { backgroundColor: '#fafafa' };
+    if (background === 'light-grid') return { backgroundColor: '#fafafa', backgroundImage: 'linear-gradient(90deg, #eee 1px, transparent 1px), linear-gradient(#eee 1px, transparent 1px)', backgroundSize: '20px 20px' };
+    if (background === 'dark-grid') return { backgroundColor: '#333', backgroundImage: 'linear-gradient(90deg, #444 1px, transparent 1px), linear-gradient(#444 1px, transparent 1px)', backgroundSize: '20px 20px' };
+    if (background === 'dots') return { backgroundColor: '#fafafa', backgroundImage: 'radial-gradient(#ccc 1px, transparent 1px)', backgroundSize: '20px 20px' };
+    if (background === 'lines') return { backgroundColor: '#fafafa', backgroundImage: 'linear-gradient(#eee 1px, transparent 1px)', backgroundSize: '20px 20px' };
+    return {};
+  };
 
   useEffect(() => {
     const onResize = () => setSize({ width: window.innerWidth, height: window.innerHeight });
@@ -78,59 +138,33 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     if (!stage) return null;
     const pointer = stage.getPointerPosition();
     if (!pointer) return null;
-    return {
-      x: (pointer.x - viewport.x) / viewport.scale,
-      y: (pointer.y - viewport.y) / viewport.scale,
-    };
+    return { x: (pointer.x - viewport.x) / viewport.scale, y: (pointer.y - viewport.y) / viewport.scale };
   };
 
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    if (e.evt.button === 1 || e.evt.getModifierState?.(' ')) {
-      setIsPanning(true);
-      return;
-    }
-
+    if (e.evt.button === 1 || e.evt.getModifierState?.(' ')) { setIsPanning(true); return; }
     if (tool === 'select') {
       if (e.target === e.target.getStage()) setSelected(null);
       return;
     }
-
     const pos = getPointerPos();
     if (!pos) return;
-
-    if (tool === 'eraser') {
-      setIsDrawing(true);
-      return;
-    }
-
+    if (tool === 'eraser') { setIsDrawing(true); return; }
     setIsDrawing(true);
 
     const id = `${userId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const base: BoardElement = {
-      id,
-      type: tool as ElementType,
-      x: pos.x,
-      y: pos.y,
-      color,
-      strokeWidth,
-      fontSize,
-      fontFamily,
-      createdBy: userId,
-      version: 1,
-      updatedAt: Date.now(),
+      id, type: tool as ElementType, x: pos.x, y: pos.y,
+      color, fill: fillColor, strokeWidth, lineStyle, fontSize, fontFamily,
+      zIndex: 0,
+      createdBy: userId, version: 1, updatedAt: Date.now(),
     };
 
     if (tool === 'pen') base.points = [pos.x, pos.y];
-    if (tool === 'rect') {
-      base.width = 0;
-      base.height = 0;
-    }
+    if (tool === 'rect') { base.width = 0; base.height = 0; }
     if (tool === 'ellipse') base.radius = 0;
     if (tool === 'line') base.points = [pos.x, pos.y];
-    if (tool === 'text') {
-      base.width = 0;
-      base.height = 0;
-    }
+    if (tool === 'text') { base.width = 0; base.height = 0; }
 
     setDraftElement(base);
   };
@@ -140,11 +174,7 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     if (stage) {
       const pointer = stage.getPointerPosition();
       if (pointer) {
-        const pos = {
-          x: (pointer.x - viewport.x) / viewport.scale,
-          y: (pointer.y - viewport.y) / viewport.scale,
-        };
-        sendCursor(pos.x, pos.y);
+        sendCursor((pointer.x - viewport.x) / viewport.scale, (pointer.y - viewport.y) / viewport.scale);
       }
     }
 
@@ -156,7 +186,6 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     if (!isDrawing) return;
 
     if (tool === 'eraser') {
-      const stage = stageRef.current;
       if (stage) {
         const pos = stage.getPointerPosition();
         if (pos) {
@@ -180,32 +209,20 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     if (!pos) return;
 
     const updated = { ...draftElement };
-
-    if (tool === 'pen') {
-      updated.points = [...(draftElement.points || []), pos.x, pos.y];
-    } else if (tool === 'rect' || tool === 'text') {
-      updated.width = pos.x - draftElement.x;
-      updated.height = pos.y - draftElement.y;
-    } else if (tool === 'ellipse') {
+    if (tool === 'pen') updated.points = [...(draftElement.points || []), pos.x, pos.y];
+    else if (tool === 'rect' || tool === 'text') { updated.width = pos.x - draftElement.x; updated.height = pos.y - draftElement.y; }
+    else if (tool === 'ellipse') {
       const dx = pos.x - draftElement.x;
       const dy = pos.y - draftElement.y;
       updated.radius = Math.sqrt(dx * dx + dy * dy);
-    } else if (tool === 'line') {
-      updated.points = [draftElement.x, draftElement.y, pos.x, pos.y];
-    }
+    } else if (tool === 'line') updated.points = [draftElement.x, draftElement.y, pos.x, pos.y];
 
     setDraftElement(updated);
   };
 
   const handleMouseUp = () => {
-    if (isPanning) {
-      setIsPanning(false);
-      return;
-    }
-    if (!isDrawing || !draftElement) {
-      setIsDrawing(false);
-      return;
-    }
+    if (isPanning) { setIsPanning(false); return; }
+    if (!isDrawing || !draftElement) { setIsDrawing(false); return; }
 
     let shouldSave = true;
     if (draftElement.type === 'pen' && (draftElement.points?.length ?? 0) < 4) shouldSave = false;
@@ -218,17 +235,8 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     if (draftElement.type === 'text') {
       let w = Math.abs(draftElement.width || 0);
       let h = Math.abs(draftElement.height || 0);
-      if (w < 20 || h < 20) {
-        w = 200;
-        h = 40;
-      }
-      setTextInput({
-        x: draftElement.x,
-        y: draftElement.y,
-        width: w,
-        height: h,
-        text: '',
-      });
+      if (w < 20 || h < 20) { w = 200; h = 40; }
+      setTextInput({ x: draftElement.x, y: draftElement.y, width: w, height: h, text: '' });
       setDraftElement(null);
       setIsDrawing(false);
       return;
@@ -249,49 +257,24 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     if (!stage) return;
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
-
     const oldScale = viewport.scale;
     const scaleBy = 1.1;
     const newScale = e.evt.deltaY < 0 ? oldScale * scaleBy : oldScale / scaleBy;
     const clampedScale = Math.max(0.2, Math.min(4, newScale));
-
-    const mousePointTo = {
-      x: (pointer.x - viewport.x) / oldScale,
-      y: (pointer.y - viewport.y) / oldScale,
-    };
-
-    setViewport({
-      scale: clampedScale,
-      x: pointer.x - mousePointTo.x * clampedScale,
-      y: pointer.y - mousePointTo.y * clampedScale,
-    });
+    const mousePointTo = { x: (pointer.x - viewport.x) / oldScale, y: (pointer.y - viewport.y) / oldScale };
+    setViewport({ scale: clampedScale, x: pointer.x - mousePointTo.x * clampedScale, y: pointer.y - mousePointTo.y * clampedScale });
   };
 
   const finishTextInput = () => {
     if (!textInput) return;
-    if (!textInput.text.trim()) {
-      setTextInput(null);
-      return;
-    }
-
+    if (!textInput.text.trim()) { setTextInput(null); return; }
     const id = `${userId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const el: BoardElement = {
-      id,
-      type: 'text',
-      x: textInput.x,
-      y: textInput.y,
-      width: textInput.width,
-      height: textInput.height,
-      text: textInput.text,
-      fontSize,
-      fontFamily,
-      color,
-      strokeWidth: 0,
-      createdBy: userId,
-      version: 1,
-      updatedAt: Date.now(),
+      id, type: 'text', x: textInput.x, y: textInput.y,
+      width: textInput.width, height: textInput.height,
+      text: textInput.text, fontSize, fontFamily, color,
+      strokeWidth: 0, zIndex: 0, createdBy: userId, version: 1, updatedAt: Date.now(),
     };
-
     addElement(el);
     pushHistory({ type: 'add', element: el });
     sendOperation({ type: 'add', element: el });
@@ -308,68 +291,32 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
     const glowBlur = isDraft ? 12 : isSelected ? 10 : 0;
 
     const commonProps = {
-      key: el.id,
-      id: el.id,
+      key: el.id, id: el.id,
       onClick: () => handleElementClick(el),
       onTap: () => handleElementClick(el),
       opacity: isDraft ? 0.9 : 1,
-      shadowColor: glowColor,
-      shadowBlur: glowBlur,
-      shadowOpacity: glowColor ? 0.8 : 0,
+      shadowColor: glowColor, shadowBlur: glowBlur, shadowOpacity: glowColor ? 0.8 : 0,
     };
 
+    const ls = el.lineStyle || 'solid';
+    const dash = ls === 'dashed' ? [10, 6] : ls === 'dotted' ? [2, 6] : undefined;
+
     if (el.type === 'pen' && el.points) {
-      return (
-        <Line
-          {...commonProps}
-          points={el.points}
-          stroke={el.color}
-          strokeWidth={el.strokeWidth}
-          lineCap="round"
-          lineJoin="round"
-          tension={0.3}
-        />
-      );
+      let pts = el.points;
+      if (ls === 'wavy') pts = getWavyPoints(pts);
+      return <Line {...commonProps} points={pts} stroke={el.color} strokeWidth={el.strokeWidth} lineCap="round" lineJoin="round" dash={dash} tension={ls === 'wavy' ? 0 : 0.3} />;
     }
     if (el.type === 'rect') {
-      return (
-        <Rect
-          {...commonProps}
-          x={el.x}
-          y={el.y}
-          width={el.width}
-          height={el.height}
-          stroke={el.color}
-          strokeWidth={el.strokeWidth}
-          fill="transparent"
-        />
-      );
+      return <Rect {...commonProps} x={el.x} y={el.y} width={el.width} height={el.height} stroke={el.color} strokeWidth={el.strokeWidth} fill={el.fill || 'transparent'} dash={dash} />;
     }
     if (el.type === 'ellipse') {
       const r = el.radius || 0;
-      return (
-        <Ellipse
-          {...commonProps}
-          x={el.x + r}
-          y={el.y + r}
-          radiusX={Math.abs(r)}
-          radiusY={Math.abs(r)}
-          stroke={el.color}
-          strokeWidth={el.strokeWidth}
-          fill="transparent"
-        />
-      );
+      return <Ellipse {...commonProps} x={el.x + r} y={el.y + r} radiusX={Math.abs(r)} radiusY={Math.abs(r)} stroke={el.color} strokeWidth={el.strokeWidth} fill={el.fill || 'transparent'} dash={dash} />;
     }
     if (el.type === 'line' && el.points) {
-      return (
-        <Line
-          {...commonProps}
-          points={el.points}
-          stroke={el.color}
-          strokeWidth={el.strokeWidth}
-          lineCap="round"
-        />
-      );
+      let pts = el.points;
+      if (ls === 'wavy') pts = getWavyPoints(pts);
+      return <Line {...commonProps} points={pts} stroke={el.color} strokeWidth={el.strokeWidth} lineCap="round" dash={dash} tension={ls === 'wavy' ? 0 : 0} />;
     }
     if (el.type === 'text' && el.text) {
       return (
@@ -385,31 +332,20 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
         />
       );
     }
+    if (el.type === 'image' && el.imageUrl) {
+      return <KonvaImageElement key={el.id} el={el} isSelected={isSelected} isDraft={isDraft} onClick={() => handleElementClick(el)} />;
+    }
     return null;
   };
 
   return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', ...getBgStyle() }}>
       <Stage
-        ref={stageRef}
-        width={size.width}
-        height={size.height}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onTouchStart={handleMouseDown as any}
-        onTouchMove={handleMouseMove as any}
-        onTouchEnd={handleMouseUp}
+        ref={stageRef} width={size.width} height={size.height}
+        onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}
+        onTouchStart={handleMouseDown as any} onTouchMove={handleMouseMove as any} onTouchEnd={handleMouseUp}
         onWheel={handleWheel}
-        style={{
-          cursor: isPanning
-            ? 'grabbing'
-            : tool === 'select'
-            ? 'default'
-            : tool === 'eraser'
-            ? 'cell'
-            : 'crosshair',
-        }}
+        style={{ cursor: isPanning ? 'grabbing' : tool === 'select' ? 'default' : tool === 'eraser' ? 'cell' : 'crosshair', background: 'transparent' }}
       >
         <Layer>
           <Group x={viewport.x} y={viewport.y} scaleX={viewport.scale} scaleY={viewport.scale}>
@@ -434,46 +370,26 @@ export function Whiteboard({ sendOperation, sendCursor, userId }: WhiteboardProp
       </Stage>
 
       {textInput && (
-        <div
-          style={{
-            position: 'absolute',
-            top: textInput.y * viewport.scale + viewport.y,
-            left: textInput.x * viewport.scale + viewport.x,
-            width: textInput.width * viewport.scale,
-            height: textInput.height * viewport.scale,
-            zIndex: 100,
-          }}
-        >
-          <div
-            style={{
-              position: 'absolute',
-              inset: -2,
-              border: '2px dashed #2ecc71',
-              borderRadius: 4,
-              pointerEvents: 'none',
-            }}
-          />
+        <div style={{
+          position: 'absolute',
+          top: textInput.y * viewport.scale + viewport.y,
+          left: textInput.x * viewport.scale + viewport.x,
+          width: textInput.width * viewport.scale,
+          height: textInput.height * viewport.scale,
+          zIndex: 100,
+        }}>
+          <div style={{ position: 'absolute', inset: -2, border: '2px dashed #2ecc71', borderRadius: 4, pointerEvents: 'none' }} />
           <textarea
             ref={textInputRef}
             value={textInput.text}
             onChange={(e) => setTextInput({ ...textInput, text: e.target.value })}
             onBlur={finishTextInput}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') finishTextInput();
-            }}
+            onKeyDown={(e) => { if (e.key === 'Escape') finishTextInput(); }}
             style={{
-              width: '100%',
-              height: '100%',
-              padding: '4px 6px',
-              border: 'none',
-              outline: 'none',
-              resize: 'none',
-              fontSize: fontSize * viewport.scale,
-              fontFamily,
-              color,
-              background: 'rgba(255,255,255,0.85)',
-              lineHeight: 1.2,
-              boxSizing: 'border-box',
+              width: '100%', height: '100%', padding: '4px 6px',
+              border: 'none', outline: 'none', resize: 'none',
+              fontSize: fontSize * viewport.scale, fontFamily, color,
+              background: 'rgba(255,255,255,0.85)', lineHeight: 1.2, boxSizing: 'border-box',
             }}
             placeholder="Введите текст..."
           />

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { BoardElement, Participant, RemoteCursor, ConnectionState, Tool } from '../types';
+import type { BoardElement, Participant, RemoteCursor, ConnectionState, Tool, LineStyle, BoardBackground } from '../types';
 
 type HistoryEntry = {
   type: 'add' | 'update' | 'remove';
@@ -10,10 +10,13 @@ interface BoardStore {
   elements: Map<string, BoardElement>;
   tool: Tool;
   color: string;
+  fillColor: string;
   strokeWidth: number;
+  lineStyle: LineStyle;
   fontSize: number;
   fontFamily: string;
   selectedId: string | null;
+  background: BoardBackground;
 
   participants: Participant[];
   cursors: Map<string, RemoteCursor>;
@@ -23,21 +26,20 @@ interface BoardStore {
   history: HistoryEntry[];
   future: HistoryEntry[];
 
+  setBackground: (bg: BoardBackground) => void;
   setElements: (elements: BoardElement[]) => void;
-  applyRemoteOperation: (op: {
-    type: 'add' | 'update' | 'remove' | 'clear';
-    element?: BoardElement;
-    elementId?: string;
-  }) => void;
-
+  applyRemoteOperation: (op: { type: 'add' | 'update' | 'remove' | 'clear'; element?: BoardElement; elementId?: string; }) => void;
   addElement: (element: BoardElement) => void;
   updateElement: (element: BoardElement) => void;
   removeElement: (id: string) => void;
   clearElements: () => void;
+  bringToFront: (id: string) => void;
 
   setTool: (tool: Tool) => void;
   setColor: (color: string) => void;
+  setFillColor: (fill: string) => void;
   setStrokeWidth: (w: number) => void;
+  setLineStyle: (style: LineStyle) => void;
   setFontSize: (size: number) => void;
   setFontFamily: (font: string) => void;
   setSelected: (id: string | null) => void;
@@ -61,10 +63,13 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
   elements: new Map(),
   tool: 'select',
   color: '#1a1a1a',
+  fillColor: 'transparent',
   strokeWidth: 2,
+  lineStyle: 'solid',
   fontSize: 16,
   fontFamily: 'Arial',
   selectedId: null,
+  background: 'light-grid',
 
   participants: [],
   cursors: new Map(),
@@ -73,6 +78,8 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
 
   history: [],
   future: [],
+
+  setBackground: (background) => set({ background }),
 
   setElements: (elements) => {
     const map = new Map<string, BoardElement>();
@@ -93,7 +100,8 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
 
   addElement: (element) => set((state) => {
     const elements = new Map(state.elements);
-    elements.set(element.id, element);
+    const maxZ = Math.max(0, ...Array.from(elements.values()).map(e => e.zIndex || 0));
+    elements.set(element.id, { ...element, zIndex: maxZ + 1 });
     return { elements };
   }),
 
@@ -113,9 +121,20 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
 
   clearElements: () => set({ elements: new Map(), selectedId: null }),
 
+  bringToFront: (id) => set((state) => {
+    const el = state.elements.get(id);
+    if (!el) return state;
+    const elements = new Map(state.elements);
+    const maxZ = Math.max(0, ...Array.from(elements.values()).map(e => e.zIndex || 0));
+    elements.set(id, { ...el, zIndex: maxZ + 1 });
+    return { elements };
+  }),
+
   setTool: (tool) => set({ tool, selectedId: null }),
   setColor: (color) => set({ color }),
+  setFillColor: (fillColor) => set({ fillColor }),
   setStrokeWidth: (strokeWidth) => set({ strokeWidth }),
+  setLineStyle: (lineStyle) => set({ lineStyle }),
   setFontSize: (fontSize) => set({ fontSize }),
   setFontFamily: (fontFamily) => set({ fontFamily }),
   setSelected: (selectedId) => set({ selectedId }),
@@ -170,14 +189,8 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
   },
 
   resetHistory: () => set({ history: [], future: [] }),
-
   resetBoard: () => set({
-    elements: new Map(),
-    selectedId: null,
-    cursors: new Map(),
-    participants: [],
-    history: [],
-    future: [],
-    isOwner: false,
+    elements: new Map(), selectedId: null, cursors: new Map(),
+    participants: [], history: [], future: [], isOwner: false,
   }),
 }));

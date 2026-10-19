@@ -32,8 +32,10 @@ const REFRESH_COOKIE_NAME = 'refreshToken';
 const cookieOptions = {
   httpOnly: true,                                  // недоступно JS на клиенте
   secure: process.env.NODE_ENV === 'production',   // только HTTPS в проде
-  sameSite: 'strict' as const,                     // защита от CSRF
-  path: '/api/auth',                               // cookie уходит только на auth-эндпоинты
+  // Lax позволяет отправлять cookie при перезагрузке страницы и переходах,
+  // Strict блокирует их в некоторых конфигурациях браузера
+  sameSite: 'lax' as const, 
+  path: '/', // Расширяем путь, чтобы cookie была доступна для всех API запросов
   maxAge: TOKEN_TTL.refreshSeconds * 1000,         // 7 дней в миллисекундах
 };
 
@@ -81,7 +83,7 @@ router.post('/refresh', async (req: Request, res: Response, next: NextFunction) 
       select: { id: true, name: true, email: true },
     });
     if (!user) {
-      res.clearCookie(REFRESH_COOKIE_NAME, { path: '/api/auth' });
+      res.clearCookie(REFRESH_COOKIE_NAME, { path: '/' });
       res.status(401).json({ error: 'Пользователь не найден', code: 'USER_NOT_FOUND' });
       return;
     }
@@ -93,7 +95,7 @@ router.post('/refresh', async (req: Request, res: Response, next: NextFunction) 
     res.json({ user, accessToken });
   } catch (err) {
     if (err instanceof Error && (err.name === 'TokenExpiredError' || err.name === 'JsonWebTokenError')) {
-      res.clearCookie(REFRESH_COOKIE_NAME, { path: '/api/auth' });
+      res.clearCookie(REFRESH_COOKIE_NAME, { path: '/' });
       res.status(401).json({ error: 'Сессия истекла, войдите заново', code: 'SESSION_EXPIRED' });
       return;
     }
@@ -104,7 +106,7 @@ router.post('/refresh', async (req: Request, res: Response, next: NextFunction) 
 // ============ POST /api/auth/logout ============
 
 router.post('/logout', (_req: Request, res: Response) => {
-  res.clearCookie(REFRESH_COOKIE_NAME, { path: '/api/auth' });
+  res.clearCookie(REFRESH_COOKIE_NAME, { path: '/' });
   res.json({ ok: true });
 });
 

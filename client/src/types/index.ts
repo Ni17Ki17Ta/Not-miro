@@ -23,9 +23,10 @@ export interface BoardListItem {
   updatedAt: string;
 }
 
-export type ElementType = 'pen' | 'rect' | 'ellipse' | 'line' | 'text';
-
-export type Tool = 'select' | 'pen' | 'eraser' | 'rect' | 'ellipse' | 'line' | 'text';
+export type ElementType = 'pen' | 'rect' | 'ellipse' | 'line' | 'text' | 'image';
+export type Tool = 'select' | 'pen' | 'eraser' | 'rect' | 'ellipse' | 'line' | 'text' | 'image';
+export type LineStyle = 'solid' | 'dashed' | 'dotted' | 'wavy';
+export type BoardBackground = 'light-grid' | 'dark-grid' | 'dots' | 'lines' | 'plain';
 
 export interface BoardElement {
   id: string;
@@ -40,7 +41,11 @@ export interface BoardElement {
   fontSize?: number;
   fontFamily?: string;
   color: string;
+  fill?: string;
   strokeWidth: number;
+  lineStyle?: LineStyle;
+  imageUrl?: string;
+  zIndex: number; // НОВОЕ: слой
   createdBy: string;
   version: number;
   updatedAt: number;
