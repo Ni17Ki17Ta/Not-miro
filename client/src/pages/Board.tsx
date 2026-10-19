@@ -36,7 +36,9 @@ export default function Board() {
   const isOwner = useBoardStore((s) => s.isOwner);
 
   useEffect(() => {
-    return () => { resetBoard(); };
+    return () => {
+      resetBoard();
+    };
   }, [resetBoard]);
 
   useEffect(() => {
@@ -58,15 +60,21 @@ export default function Board() {
   const handleUndo = () => {
     const entry = undo();
     if (!entry) return;
-    if (entry.type === 'add') sendOperation({ type: 'remove', elementId: entry.element.id, createdBy: user!.id });
-    else if (entry.type === 'remove') sendOperation({ type: 'add', element: entry.element });
+    if (entry.type === 'add') {
+      sendOperation({ type: 'remove', elementId: entry.element.id, createdBy: user!.id });
+    } else if (entry.type === 'remove') {
+      sendOperation({ type: 'add', element: entry.element });
+    }
   };
 
   const handleRedo = () => {
     const entry = redo();
     if (!entry) return;
-    if (entry.type === 'add') sendOperation({ type: 'add', element: entry.element });
-    else if (entry.type === 'remove') sendOperation({ type: 'remove', elementId: entry.element.id, createdBy: user!.id });
+    if (entry.type === 'add') {
+      sendOperation({ type: 'add', element: entry.element });
+    } else if (entry.type === 'remove') {
+      sendOperation({ type: 'remove', elementId: entry.element.id, createdBy: user!.id });
+    }
   };
 
   const handleClear = () => {
@@ -83,7 +91,9 @@ export default function Board() {
       <div style={{ padding: 40, textAlign: 'center' }}>
         <h2 style={{ color: '#c00', marginBottom: 16 }}>Ошибка</h2>
         <p style={{ marginBottom: 16 }}>{error}</p>
-        <Link to="/" className="btn-secondary">← Вернуться к доскам</Link>
+        <Link to="/" className="btn-secondary">
+          ← Вернуться к доскам
+        </Link>
       </div>
     );
   }
@@ -96,9 +106,23 @@ export default function Board() {
     <div className="board-container">
       <div className="board-topbar">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Link to="/" style={{ fontSize: 13, color: '#007bff', textDecoration: 'none' }}>← Мои доски</Link>
+          <Link to="/" style={{ fontSize: 13, color: '#007bff', textDecoration: 'none' }}>
+            ← Мои доски
+          </Link>
           <span className="title">{board.title}</span>
-          {!isOwner && <span style={{ fontSize: 11, padding: '2px 8px', background: '#fff3cd', color: '#856404', borderRadius: 10 }}>Гость</span>}
+          {!isOwner && (
+            <span
+              style={{
+                fontSize: 11,
+                padding: '2px 8px',
+                background: '#fff3cd',
+                color: '#856404',
+                borderRadius: 10,
+              }}
+            >
+              Гость
+            </span>
+          )}
         </div>
         <ConnectionIndicator />
       </div>
@@ -111,7 +135,7 @@ export default function Board() {
         canRedo={future.length > 0}
         onOpenSettings={() => setShowSettings(true)}
         userId={user.id}
-        boardId={board.id}  {/* <-- ДОБАВИТЬ ЭТУ СТРОКУ */}
+        boardId={board.id}
         viewport={viewport}
       />
 
@@ -123,7 +147,12 @@ export default function Board() {
 
       <PropertiesPanel sendOperation={sendOperation} />
 
-      <Whiteboard sendOperation={sendOperation} sendCursor={sendCursor} userId={user.id} userName={user.name} />
+      <Whiteboard
+        sendOperation={sendOperation}
+        sendCursor={sendCursor}
+        userId={user.id}
+        userName={user.name}
+      />
     </div>
   );
 }
