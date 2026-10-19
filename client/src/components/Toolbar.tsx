@@ -85,6 +85,7 @@ export function Toolbar({ onUndo, onRedo, onClear, canUndo, canRedo, onOpenSetti
           imageUrl: base64,
           color: '#000',
           strokeWidth: 0,
+          zIndex: 0, // <-- ДОБАВЛЕНО: обязательное поле
           createdBy: userId,
           version: 1,
           updatedAt: Date.now(),
